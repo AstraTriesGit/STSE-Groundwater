@@ -1,0 +1,136 @@
+---
+title: "Sanity Checks on the GWL Dataset"
+output: pdf_document
+---
+
+The first course of action is to analyse the dimensions of `gwl_2023_24.feather`.
+```{r}
+library(dplyr)
+library(feather)
+library(ggplot2)
+library(rmarkdown)
+
+gwl_2023_24 <- read_feather('../data/gwl_2023_24.feather')
+glimpse(gwl_2023_24)
+```
+There are **4,308,184** rows of data for one year! This does not align with our ex-ante knowledge that the order
+of count of stations is in the _ten thousands_, and around _4 observations_ are taken over one year.
+```{r}
+observations_per_station <- gwl_2023_24 %>%
+  count(latitude, longitude, sort = TRUE)
+glimpse(observations_per_station)
+```
+```{r}
+summary(observations_per_station$n)
+```
+One half of our prior knowledge has been confirmed-there are _18,849 unique lat-long pairs_, each referring to a
+groundwater level measuring station.
+All upto the 3rd quartile, every latitude-longitude pair has a single-digit observation count.
+What happens beyond this quartile is open to question!
+```{r}
+q3 <- quantile(observations_per_station$n, 0.75)
+stations_beyond_75_percentile <- observations_per_station %>%
+        filter(n > q3)
+glimpse(stations_beyond_75_percentile)
+```
+As a test to make things simpler for ourselves, we will consider only the first station (30.60668, 75.88028) and see what
+is going on with the datapoints from this station.
+
+```{r}
+most_observed_station <- gwl_2023_24 %>%
+        filter(latitude == 30.60668, longitude == 75.88028) %>%
+        arrange(data_time)
+glimpse(most_observed_station)
+```
+The `glimpse()` function is showing us at a glance that the Punjab Barnala Mehla Kalan Chananwal station has been
+taking readings at a much higher frequency than was expected! For good measure, we will confirm if the time stamps
+are unique throughout those 12,924 readings:
+```{r}
+timestamp_count <- most_observed_station %>%
+        summarize(count = n_distinct(data_time)) %>%
+        pull(count)
+timestamp_count
+```
+A fraction of those datapoints have unique timestamps! Are these duplicates?
+```{r}
+readings_per_time <- most_observed_station %>%
+        group_by(data_time) %>%
+        summarize(n = n(),
+                  n_distinct = n_distinct(data_value),
+                  mean = mean(data_value))
+glimpse(readings_per_time)
+```
+Well.
+In an unexpected turn of events, _almost all the different readings collected at the same timestamp have different values!_
+A pointless side quest would be to identify the timestamps, although such information does not really help with the analysis.
+```{r}
+unequal_timestamps <- readings_per_time %>%
+        filter(n != n_distinct) %>%
+        arrange(desc(n - n_distinct))
+glimpse(unequal_timestamps)
+```
+Moving on.
+Another simple (oh, how naïve) effort would be to find all the readings on a random timestamp:
+```{r}
+random_datetime <- most_observed_station %>%
+        filter(data_time < as.POSIXct('2023-05-01 06:00:00'))
+summary(random_datetime$data_value)
+```
+_That is surely a large range of observations for a measurement that had been allegedly taken at the same location
+and time!_ This is a conclusion on the quality of data collected at the Punjab Barnala Mehla Kalan Chananwal station.
+Such an exercise can be extended to other stations as well, which also report an abnormally high amount of data.
+
+# Possible Ways Out
+## Averaging over spatio-temporal locations
+A simple, although very questionable method to use from here on would be to simply average over the multiple readings
+taken at the same spatio-temporal location.
+```{r}
+gwl_2023_24_reduced <- gwl_2023_24 %>%
+        group_by(latitude, longitude, data_time) %>%
+        summarise(mean_gwl = mean(data_value))
+glimpse(gwl_2023_24_reduced)
+```
+And yet, our valiant 4-line effort does little to reduce the dataset size by much!
+Let's continue the sanity checks that we had done previously:
+```{r}
+observations_per_station_reduced <- gwl_2023_24_reduced %>%
+        group_by(latitude, longitude) %>%
+        summarise(n = n()) %>%
+        arrange(desc(n))
+summary(observations_per_station_reduced$n)
+```
+There exists a station which has made 7089 (averaged over each timestamp) observations over the year!
+```{r}
+glimpse(observations_per_station_reduced)
+```
+```{r}
+station_info <- gwl_2023_24 %>%
+        filter(latitude == 28.707800 & longitude == 77.2490) %>%
+        head(1)
+glimpse(station_info)
+```
+There's our culprit. How's their observations coming along?
+```{r}
+sonia_vihar <- gwl_2023_24_reduced %>%
+        filter(latitude == 28.707800 & longitude == 77.2490)
+glimpse(sonia_vihar)
+summary(sonia_vihar$mean_gwl)
+```
+But of course, all the timestamps will be unique due to our previous `group_by` operations.
+```{r}
+length(unique(sonia_vihar$data_time))
+```
+Here's a visualisation of the mean groundwater level in metres at Sonia Vihar, for no reason.
+```{r}
+ggplot(sonia_vihar, mapping = aes(y = mean_gwl, x = data_time)) +
+        geom_line()
+```
+
+
+Initially thought to be a pointless exercise, the data visualisation has brought us a peculiar graph, and brings us
+to ask stranger questions: what happened to the readings in September?
+
+**In any case, the time-stamps are at the heart of the true reason as to why the dataset is this massive.**
+
+### We will conclude here briefly until better ideas come up to manage this dataset.
+- Aggregate data on time-stamps?
