@@ -1,0 +1,230 @@
+---
+title: "Creating Balanced Panels from the GWL Dataset"
+output: pdf_document
+---
+
+First course of action is to load our data, saved in the feather format.
+```{r}
+# install.packages(c('dplyr', 'feather', 'ggplot2', 'rmarkdown', 'lubridate'))
+library(dplyr)
+library(feather)
+library(ggplot2)
+library(rmarkdown)
+library(lubridate)
+
+gwl_2023_24 <- read_feather('data/gwl_2023_24.feather')
+glimpse(gwl_2023_24)
+```
+
+Second course of action will be to find how many stations made ≤ median count of observations over the year.
+```{r}
+obs_per_station <- gwl_2023_24 %>%
+  group_by(latitude, longitude) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+obs_per_station_median <- obs_per_station %>% filter(count <= 3)
+glimpse(obs_per_station_median)
+```
+11208/18849 (~60%) stations made ≤median(3) observations.
+We will now filter the observations from those stations.
+```{r}
+gwl_median <- gwl_2023_24 %>%
+  left_join(obs_per_station, by = c('latitude', 'longitude')) %>%
+  filter(count <= 3)
+
+glimpse(gwl_median)
+```
+`gwl_median` stores the observations from stations who made ≤3 observations in the period May 2023-May 2024.
+```{r}
+# observations per station among stations which made ≤median count of observations.
+obs_per_station_median <- gwl_median %>%
+  group_by(latitude, longitude) %>%
+  summarise(n_observations = n())
+
+# silly naming to find out the number of stations which made certain observation counts
+freq_freq <- obs_per_station_median %>%
+  group_by(n_observations) %>%
+  summarise(stations_with_n_observations = n())
+
+glimpse(freq_freq)
+```
+3870 stations made 2 observations across the year.
+We will now try to see if the observations from those stations will allow us to create a balanced panel.
+```{r}
+gwl_2_obs <- gwl_median %>%
+  filter(count == 2)
+
+glimpse(gwl_2_obs)
+```
+The next step to finding a balanced panel would be to first see the monthly frequency of observations
+over the 2-observation dataset.
+```{r}
+monthly_freq <- gwl_2_obs %>%
+  mutate(date = as_datetime(data_time),  # Convert POSIX timestamp to datetime
+         month = floor_date(date, "month")) %>%
+  group_by(month) %>%
+  summarise(obs_per_month = n())
+
+glimpse(monthly_freq)
+
+monthly_freq$month <- as.Date(monthly_freq$month)
+ggplot(monthly_freq, aes(x = month, y = obs_per_month)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Number of Observations per Month (2-observation Stations)",
+       x = "Month",
+       y = "Number of Observations") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  geom_label(data = monthly_freq, aes(label = obs_per_month))
+
+ggsave('plots/monthly_freq_2_obs.png')
+```
+The above plot shows that there is potential in creating a balanced panel of observations from stations
+where observations were made in the following periods:
+- May 2023 and August 2023
+- May 2023 and Jan 2024
+- May 2023 and Nov 2023
+- May 2023 and Dec 2023
+
+We will now proceed to find the number of stations that made observations according to the suggested
+panels.
+```{r}
+gwl_2_obs_may <- gwl_2_obs %>%
+  filter(month(data_time) == 5 & year(data_time) == 2023)
+
+gwl_2_obs_aug <- gwl_2_obs %>%
+  filter(month(data_time) == 8 & year(data_time) == 2023)
+
+may_aug_locations <- gwl_2_obs_may %>%
+  select(latitude, longitude) %>%
+  inner_join(gwl_2_obs_aug %>% select(latitude, longitude),
+             by = c("latitude", "longitude")) %>%
+  distinct()
+
+glimpse(may_aug_locations)
+```
+There are 2149 stations that made their 2 observations in May 2023 and then in August 2023.
+We will employ similar techniques for the other panels.
+
+```{r}
+gwl_2_obs_nov <- gwl_2_obs %>%
+  filter(month(data_time) == 11 & year(data_time) == 2023)
+
+gwl_2_obs_jan <- gwl_2_obs %>%
+  filter(month(data_time) == 1 & year(data_time) == 2024)
+
+gwl_2_obs_dec <- gwl_2_obs %>%
+  filter(month(data_time) == 12 & year(data_time) == 2023)
+
+may_jan_locations <- gwl_2_obs_may %>%
+  select(latitude, longitude) %>%
+  inner_join(gwl_2_obs_jan %>% select(latitude, longitude),
+             by = c("latitude", "longitude")) %>%
+  distinct()
+
+glimpse(may_jan_locations)
+```
+
+```{r}
+may_nov_locations <- gwl_2_obs_may %>%
+  select(latitude, longitude) %>%
+  inner_join(gwl_2_obs_nov %>% select(latitude, longitude),
+             by = c("latitude", "longitude")) %>%
+  distinct()
+
+glimpse(may_nov_locations)
+```
+```{r}
+may_dec_locations <- gwl_2_obs_may %>%
+  select(latitude, longitude) %>%
+  inner_join(gwl_2_obs_dec %>% select(latitude, longitude),
+             by = c("latitude", "longitude")) %>%
+  distinct()
+
+glimpse(may_dec_locations)
+```
+The number of stations that create a balanced panel for the suggested panels are as follows:
+- May 2023 and August 2023 = 2149
+- May 2023 and Jan 2024 = 502
+- May 2023 and Nov 2023 = 82
+- May 2023 and Dec 2023 = 20
+
+We will now create the following datasets out of the groundwater level data for further analysis:
+- **Pre-Monsoon to Monsoon** (May 2023 and August 2023)
+- **Pre-Monsoon to Post-Monsoon** (May 2023 and Nov 2023/Dec 2023/Jan 2024)
+
+```{r}
+# premonsoon_monsoon should be 2149*2 = 4298 rows beyond all doubt.
+may_aug <- bind_rows(gwl_2_obs_may, gwl_2_obs_aug)
+glimpse(may_aug_locations)
+
+premonsoon_monsoon <- may_aug %>%
+  mutate(data_time = floor_date(data_time, unit = 'month')) %>%
+  inner_join(may_aug_locations, by = c('latitude', 'longitude'))
+
+
+glimpse(premonsoon_monsoon)
+write_feather(premonsoon_monsoon, 'data/premonsoon_monsoon.feather')
+```
+Correct dimensions confirmed.
+Moving onto the pre-monsoon-post-monsoon dataset.
+```{r}
+# premonsoon_postmonsoon should be (502 + 82 + 20)*2 = 1208 rows beyond all doubt.
+d2_locations <- bind_rows(may_nov_locations, may_dec_locations, may_jan_locations)
+d2_unclean <- bind_rows(gwl_2_obs_may, gwl_2_obs_nov, gwl_2_obs_dec, gwl_2_obs_jan)
+
+premonsoon_postmonsoon <- d2_unclean %>%
+  mutate(data_time = floor_date(data_time, unit = 'month')) %>%
+  inner_join(d2_locations, by = c('latitude', 'longitude'))
+
+glimpse(premonsoon_postmonsoon)
+write_feather(premonsoon_postmonsoon, 'data/premonsoon_postmonsoon.feather')
+```
+Correct dimensions confirmed once again. This will conclude dataset creation on stations with 2 observations
+per year.
+One more direction worth pursuing is the data associated with stations which were observed _3 times a year_.
+The suggested panel is of the structure May 2023 -> Aug 2023 -> (Nov 2023-Jan 2024).
+As usual the first course of action would be to see how many stations actually follow this pattern.
+```{r}
+gwl_3_obs <- gwl_median %>%
+        filter(count == 3)
+
+# all observations made in months of interest
+gwl_d3_unclean <- gwl_3_obs %>%
+  mutate(data_time = floor_date(data_time, unit = 'month')) %>%
+  filter(data_time == as.Date('2023-05-01') | data_time == as.Date('2023-08-01') |
+           data_time == as.Date('2023-11-01')| data_time == as.Date('2023-12-01')|
+           data_time == as.Date('2024-01-01'))
+
+glimpse(gwl_d3_unclean)
+monthly_freq <- gwl_d3_unclean %>%
+  mutate(date = as_datetime(data_time),  # Convert POSIX timestamp to datetime
+         month = floor_date(date, "month")) %>%
+  group_by(month) %>%
+  summarise(obs_per_month = n())
+
+glimpse(monthly_freq)
+```
+Promising numbers. How many stations can fit in our panel?
+```{r}
+# now give me the stations who did something in May
+may_stations <- gwl_d3_unclean %>%
+  filter(data_time == as.Date('2023-05-01')) %>%
+  group_by(latitude, longitude) %>%
+  summarise(lol = n())
+
+aug_stations <- gwl_d3_unclean %>%
+  filter(data_time == as.Date('2023-08-01')) %>%
+  group_by(latitude, longitude) %>%
+  summarise(lol = n())
+
+
+
+may_aug_3 <- may_stations %>%
+  inner_join(aug_stations, by = c('latitude', 'longitude'))
+
+glimpse(may_aug_3)
+
+```
