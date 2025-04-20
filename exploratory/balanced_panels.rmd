@@ -209,22 +209,43 @@ glimpse(monthly_freq)
 ```
 Promising numbers. How many stations can fit in our panel?
 ```{r}
-# now give me the stations who did something in May
-may_stations <- gwl_d3_unclean %>%
+t1_stations <- gwl_d3_unclean %>%
   filter(data_time == as.Date('2023-05-01')) %>%
-  group_by(latitude, longitude) %>%
-  summarise(lol = n())
+  select(latitude, longitude) %>%
+  distinct() %>%
+         mutate(sid = paste(latitude, longitude, sep = '-'))
 
-aug_stations <- gwl_d3_unclean %>%
+t2_stations <- gwl_d3_unclean %>%
   filter(data_time == as.Date('2023-08-01')) %>%
-  group_by(latitude, longitude) %>%
-  summarise(lol = n())
+  select(latitude, longitude) %>%
+  distinct() %>% mutate(sid = paste(latitude, longitude, sep = '-'))
 
+t3_stations <- gwl_d3_unclean %>%
+        filter(data_time == as.Date('2023-11-01') | data_time == as.Date('2024-01-01')) %>%
+        select(latitude, longitude) %>%
+        distinct() %>% mutate(sid = paste(latitude, longitude, sep = '-'))
 
+# commons contains all the stations that made observations according to our panel
+commons <- inner_join(t1_stations, t2_stations, by = 'sid') %>%
+        rename(latitude = "latitude.x", longitude = "longitude.x") %>%
+        select(latitude, longitude, sid) %>%
+        inner_join(t3_stations, by = 'sid') %>%
+        rename(latitude = "latitude.x", longitude = "longitude.x") %>%
+        select(latitude, longitude, sid)
+glimpse(commons)
+```
+Let us now create the D3 dataset.
+```{r}
+# expected length = 964 + 964 + (964) = 2892
+gwl_d3_unclean <- gwl_d3_unclean %>%
+        mutate(sid = paste(latitude, longitude, sep = '-'))
 
-may_aug_3 <- may_stations %>%
-  inner_join(aug_stations, by = c('latitude', 'longitude'))
-
-glimpse(may_aug_3)
-
+d3 <- gwl_d3_unclean %>%
+        filter(sid %in% commons$sid)
+glimpse(d3)
+```
+Dimensions confirmed.
+This will be part of the pre-monsoon-monsoon-post-monsoon analysis (certainly a lot of hyphens.)
+```{r}
+write_feather(d3, 'data/full_monsoon.feather')
 ```

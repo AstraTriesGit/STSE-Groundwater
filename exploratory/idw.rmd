@@ -1,0 +1,25 @@
+---
+title: "Inverse Distance Weighing on Balanced Panels"
+output: pdf_document
+---
+
+We have acquired D1, D2 and D3 from our work on creating balanced panels. We will now apply some
+spatio-temporal analysis techniques.
+
+# Inverse Distance Weighing
+We will be using the code provided in _(Wikle et al., 2019)_ to perform inverse distance weighing for
+deterministic prediction.
+```{r}
+install.packages(c('dplyr', 'fields', 'ggplot2', 'gstat', 'RColorBrewer', 'sp', 'spacetime', 'devtools'))
+
+library(dplyr)
+library(fields)
+library(ggplot2)
+library(gstat)
+library(RColorBrewer)
+library(sp)
+library(spacetime)
+library(devtools)
+
+install_github('andrewzm/STRBook')
+```
