@@ -3,5 +3,7 @@
 .RData
 .Ruserdata
 data
-renv
-
+renv/library
+renv/staging
+.venv
+venv
