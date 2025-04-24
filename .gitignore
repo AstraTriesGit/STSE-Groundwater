@@ -7,3 +7,5 @@ renv/library
 renv/staging
 .venv
 venv
+.DS_Store
+.idea

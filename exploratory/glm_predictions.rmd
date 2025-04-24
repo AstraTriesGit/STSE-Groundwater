@@ -1,0 +1,286 @@
+---
+title: "Using Generalised Linear Models for Spatiotemporal Prediction"
+output: pdf_document
+---
+
+We've been through this many times. Please go through `balanced_panels.rmd` to understand how
+we got the datasets.
+```{r}
+# install.packages(c('ape', 'dplyr', 'ggplot2', 'gstat', 'sp', 'spacetime', 'tidyr', 'stargazer')
+library(ape)
+library(dplyr)
+library(ggplot2)
+library(gstat)
+library(sp)
+library(spacetime)
+library(STRbook)
+library(tidyr)
+library(feather)
+library(splines)
+library(stargazer)
+
+d1 <- read_feather('data/premonsoon_monsoon.feather')
+d2 <- read_feather('data/premonsoon_postmonsoon.feather')
+d3 <- read_feather('data/full_monsoon.feather')
+full_data <-read_feather('data/gwl_2023_24.feather')
+```
+
+
+```{r}
+
+
+```
+
+
+
+
+But first, we have to define a model. Using D1 for our first model, let us see what it can come up with.
+```{r}
+d1$data_time <- as.POSIXct(d1$data_time)
+
+d1 <- d1 %>%
+  # temporal components
+  mutate(time_numeric = as.numeric(data_time),
+         day_of_year = as.numeric(format(data_time, '%j')),
+         year = as.numeric(format(data_time, '%Y'))
+  ) %>%
+  # spatial interaction
+  mutate(lat_long = latitude * longitude) %>%
+  # spatiotemporal interaction
+  mutate(lat_time = latitude * time_numeric,
+         long_time = longitude * time_numeric)
+
+
+model <- glm(d1$data_value ~
+               d1$latitude + d1$longitude  + d1$lat_long +
+                 d1$time_numeric +
+                 d1$lat_time + d1$long_time,
+             family = gaussian(),
+             data = d1)
+
+summary(model)
+# predictions <- predict(model, newdata = new_points, type = "response")
+```
+
+Fein fein fein fein fein fein fein fein
+```{r}
+d2$data_time <- as.POSIXct(d2$data_time)
+
+d2 <- d2 %>%
+        mutate(time_numeric = as.numeric(data_time),
+               day_of_year = as.numeric(format(data_time, '%j')),
+               year = as.numeric(format(data_time, '%Y'))) %>%
+        mutate(lat_long = latitude * longitude) %>%
+        mutate(lat_time = latitude * time_numeric,
+               long_time = longitude * time_numeric)
+
+
+model <- glm(d2$data_value ~
+                     d2$latitude + d2$longitude  + d2$lat_long +
+                             d2$time_numeric +
+                             d2$lat_time + d2$long_time,
+             family = gaussian(),
+             data = d2)
+
+summary(model)
+stargazer::stargazer(model, type = 'text')
+# predictions <- predict(model, newdata = new_points, type = "response")
+```
+
+```{r}
+glm_predict <- function(spatio_temp_data) {
+  spatio_temp_data$data_time <- as.POSIXct(spatio_temp_data$data_time)
+
+  spatio_temp_data$time_numeric <- as.numeric(spatio_temp_data$data_time)
+  spatio_temp_data$day_of_year <- as.numeric(format(spatio_temp_data$data_time, "%j"))
+  spatio_temp_data$year <- as.numeric(format(spatio_temp_data$data_time, "%Y"))
+
+  spatio_temp_data$lat_lon <- spatio_temp_data$latitude * spatio_temp_data$longitude
+
+  spatio_temp_data$lat_time <- spatio_temp_data$latitude * spatio_temp_data$time_numeric
+  spatio_temp_data$lon_time <- spatio_temp_data$longitude * spatio_temp_data$time_numeric
+
+  model <- glm(data_value ~
+                       # Spatial components
+                       latitude + longitude + lat_lon +
+
+                               # Temporal components
+                               time_numeric +
+
+                               # Spatial-temporal interactions
+                               lat_time + lon_time,
+
+               # Specify family
+               family = gaussian(), # Change if needed (e.g., poisson(), binomial())
+               data = spatio_temp_data)
+
+  return (model)
+}
+
+model_explained_deviation <- function (model) {
+  return(((model$null.deviance - model$deviance)/model$null.deviance) * 100)
+}
+```
+
+```{r}
+library(gstat)
+library(sp)  # For spatial data handling
+
+d1$resid <- residuals(d1_model)
+coordinates(d1) <- ~longitude+latitude
+
+v_resid <- variogram(resid~1, data = d1)
+
+# Plot the variogram
+plot(v_resid, main = "Empirical Variogram of Residuals",
+     xlab = "Distance", ylab = "Semivariance")
+
+# For directional variogram (check for anisotropy)
+v_resid_dir <- variogram(resid~1, data = d1, alpha = c(0, 45, 90, 135))
+plot(v_resid_dir, main = "Directional Variogram of Residuals")
+
+# You can also create a variogram for the original data
+v_original <- variogram(data_value~1, data = d1)
+plot(v_original, main = "Empirical Variogram of Original Data")
+
+d1 <- read_feather('data/premonsoon_monsoon.feather')
+
+# For a more customized plot with ggplot2
+library(ggplot2)
+ggplot(v_original, aes(x = dist, y = gamma)) +
+        geom_point() +
+        geom_line() +
+        labs(title = "Empirical Variogram of Residuals",
+             x = "Distance",
+             y = "Semivariance") +
+        theme_minimal()
+
+# To fit a variogram model
+v_model <- fit.variogram(v_resid, vgm(c("Exp", "Sph", "Gau")))
+plot(v_resid, v_model, main = "Fitted Variogram Model")
+```
+
+
+
+
+
+
+```{r}
+d1_model <- glm_predict(d1)
+d2_model <- glm_predict(d2)
+d3_model <- glm_predict(d3)
+full_model <- glm_predict(full_data)
+
+
+summary(full_model)
+
+model_explained_deviation(full_model)
+model_explained_deviation(d3_model)
+```
+
+```{r}
+ggplot(d1, aes(x = longitude, y = latitude, color = residuals(d1_model))) +
+        geom_point(size = 0.5) +
+        scale_color_gradient2(low = "blue", mid = "white", high = "red")  +
+        theme_minimal() +
+        labs(title = "Spatial Distribution of Residuals (D1 Model)",
+             x = "Longitude",
+             y = "Latitude",
+             color = "Residual")
+
+ggsave('plots/residuals_sp_d1.png', dpi = 300)
+
+
+plot(d1$data_time, residuals(model),
+     type = "l",
+     xlab = "Date",
+     ylab = "Residuals",
+     main = "Residuals Over Time")
+abline(h = 0, col = "red", lty = 2)
+
+
+residual_df <- data.frame(
+        date_time = d1$data_time,
+        residual = residuals(d1_model)
+)
+ggplot(residual_df, aes(x = date_time, y = residual)) +
+        geom_line() +
+        labs(title = "Residuals Over Time",
+             x = "Date",
+             y = "Residuals") +
+        theme_bw()
+
+```
+
+
+```{r}
+library(gstat)
+library(sp)
+library(spacetime)  # Needed for spatiotemporal objects
+
+# Create a spatiotemporal object
+# First, ensure your data has both spatial coordinates and time
+d1$resid <- residuals(d1_model)
+
+# Convert to sp object
+sp_data <- d1
+coordinates(sp_data) <- ~longitude+latitude
+
+# Convert timestamps to proper datetime if not already
+time_points <- as.POSIXct(d1$data_time)
+
+# Create STIDF (SpatioTemporal Irregular Data Frame)
+stfdf <- STIDF(sp_data, time_points, data = data.frame(resid = d1$resid))
+
+# Calculate empirical spatiotemporal variogram
+# You specify temporal and spatial lags
+v_st <- variogramST(resid~1, data = stfdf,
+                    tlags = 0:10,  # temporal lags (adjust based on your data)
+                    cutoff = 100,  # spatial cutoff distance
+                    width = 10)    # spatial lag width
+
+# Plot the spatiotemporal variogram
+plot(v_st, map = FALSE)  # 3D wireframe plot
+plot(v_st, map = TRUE)   # 2D plot with time as contours
+
+# Alternative visualization - separate plots by time lag
+plot(v_st, wireframe = TRUE)  # 3D wireframe
+plot(v_st, wireframe = FALSE) # 2D heatmap
+
+# For a more customized view
+# Extract the variogram data and plot with ggplot2
+library(ggplot2)
+v_df <- as.data.frame(v_st)
+ggplot(v_df, aes(x = spacelag, y = gamma, color = factor(timelag))) +
+        geom_line() +
+        labs(title = "Spatiotemporal Variogram",
+             x = "Spatial Distance",
+             y = "Semivariance",
+             color = "Time Lag") +
+        theme_minimal()
+
+# You can also try different spatiotemporal variogram models
+# Define candidate models
+sumMetric <- vgmST("sumMetric",
+                   space = vgm(psill = 100, "Exp", range = 10),
+                   time = vgm(psill = 100, "Exp", range = 1),
+                   joint = vgm(psill = 50, "Exp", range = 10))
+
+# Fit the model
+fitted_st <- fit.StVariogram(v_st, sumMetric)
+
+# Plot fitted model with empirical variogram
+plot(v_st, fitted_st)
+```
+
+
+```{r}
+ols <- lm(d1)
+summary(full_data$data_value)
+hmm <- full_data %>% filter(data_value < -0.1 & data_value > -10)
+glimpse(hmm)
+summary(hmm$data_value)
+ggplot(hmm, mapping = aes(x = data_value)) + geom_histogram()
+```
+
+

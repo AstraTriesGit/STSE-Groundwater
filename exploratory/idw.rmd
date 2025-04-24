@@ -10,7 +10,8 @@ spatio-temporal analysis techniques.
 We will be using the code provided in _(Wikle et al., 2019)_ to perform inverse distance weighing for
 deterministic prediction.
 ```{r}
-install.packages(c('dplyr', 'fields', 'ggplot2', 'gstat', 'RColorBrewer', 'sp', 'spacetime', 'devtools'))
+install.packages(c('dplyr', 'fields', 'ggplot2', 'gstat', 'RColorBrewer', 'sp', 'spacetime', 'devtools', 'raster'))
+
 
 library(dplyr)
 library(fields)
@@ -20,6 +21,206 @@ library(RColorBrewer)
 library(sp)
 library(spacetime)
 library(devtools)
+library(feather)
+library(raster)
 
 install_github('andrewzm/STRBook')
+library(STRbook)
+```
+We have not been able to make the gstat library work for us.
+Time to implement IDW from scratch. Let's get the predefined things ready.
+
+```{r}
+d1 <- read_feather('data/premonsoon_monsoon.feather')
+d1_aug <- d1 %>%
+  filter(as.Date(data_time) == as.Date('2023-08-01'))
+
+pred_grid <- expand.grid(longitude = seq(floor(min(d1_aug$longitude)), ceiling(max(d1_aug$longitude)),
+                                         length = 20),
+                         latitude = seq(floor(min(d1_aug$latitude)), ceiling(max(d1_aug$latitude)),
+                                        length = 20),
+                         data_time = seq(4, 29, length = 6))
+
+pred_obs_dist_matrix <- rdist(select(pred_grid, longitude, latitude, data_time),
+                              select(d1_aug, longitude, latitude, data_time))
+
+Wt_IDW <- function (theta, dist_mat) 1/ (dist_mat ^ theta)
+Wtilde <- Wt_IDW(theta = 5, dist_mat = pred_obs_dist_matrix)
+
+Wtilde_rsums <- rowSums(Wtilde)
+W <- Wtilde/Wtilde_rsums
+
+data_predict_IDW <- as.numeric(W %*% d1_aug$data_value)
+glimpse(pred_grid)
+
+summary(d1_aug$longitude)
+summary(d1_aug$latitude)
+
+min(d1_aug$longitude)
+ceiling(max(d1_aug$longitude))
+
+arbitrary_points <- data.frame(
+        longitude = c(73),  # Example coordinates - replace with your desired points
+        latitude = c(27.5)       # Example coordinates - replace with your desired points
+)
+```
+
+Claude pls
+```{r}
+perform_idw <- function(data, time_point, power = 2, resolution = 0.01) {
+  data_at_time <- data[data$data_time == time_point, ]
+
+  coordinates(data_at_time) <- ~longitude+latitude
+
+  grid_extent <- extent(
+    min(data$longitude) - 0.1,
+    max(data$longitude) + 0.1,
+    min(data$latitude) - 0.1,
+    max(data$latitude) + 0.1
+  )
+
+  grid <- raster(grid_extent, resolution = resolution)
+  grid_points <- rasterToPoints(grid, spatial = TRUE)
+
+  idw_model <- gstat(
+    formula = data_value ~ 1,
+    locations = data_at_time,
+    nmax = 12,
+    set = list(idp = power)
+  )
+  prediction <- predict(idw_model, grid_points)
+  idw_raster <- rasterize(prediction, grid, field = "var1.pred")
+
+  return(list(
+    raster = idw_raster,
+    prediction = prediction,
+    time = time_point
+  ))
+}
+
+if(!inherits(d1$data_time, "POSIXct")) {
+  d1$data_time <- as.POSIXct(d1$data_time)
+}
+
+# specific time point for interpolation
+time_point <- unique(d1$data_time)[1]
+
+idw_result <- perform_idw(d1, time_point)
+
+raster_df <- as.data.frame(rasterToPoints(idw_result$raster))
+colnames(raster_df) <- c("longitude", "latitude", "value")
+
+points_df <- d1[d1$data_time == time_point, c("longitude", "latitude", "data_value")]
+
+ggplot() +
+        geom_raster(data = raster_df, aes(x = longitude, y = latitude, fill = value)) +
+        geom_point(data = points_df, aes(x = longitude, y = latitude),
+                   color = "white", size = 0.5, shape = 21, fill = "white") +
+        geom_point(data = arbitrary_points, aes(x = longitude, y = latitude),
+                   color = "blue", size = 4, shape = 23, fill = "yellow") +
+        scale_fill_viridis_c(name = "Interpolated Value") +
+        theme_bw() +  # Use theme_bw() for a non-transparent white background
+        theme(
+                panel.background = element_rect(fill = "white", color = "black"),  # White panel background
+                plot.background = element_rect(fill = "white", color = NA),  # White plot background
+                legend.background = element_rect(fill = "white", color = NA)  # White legend background
+        ) +
+        labs(
+                title = paste("Inverse Distance Weighing Interpolation (D1)"),
+                subtitle = paste("Time:", format(idw_result$time)),
+                x = "Longitude",
+                y = "Latitude"
+        )
+
+ggsave('plots/idw_d1.png', dpi = 300)
+```
+Looks cool. Let us see the same procedure on the other datasets.
+```{r}
+d2 <- read_feather('data/premonsoon_postmonsoon.feather')
+
+if(!inherits(d2$data_time, "POSIXct")) {
+  d2$data_time <- as.POSIXct(d2$data_time)
+}
+
+# specific time point for interpolation
+time_point <- unique(d2$data_time)[1]
+
+idw_result <- perform_idw(d2, time_point)
+
+raster_df <- as.data.frame(rasterToPoints(idw_result$raster))
+colnames(raster_df) <- c("longitude", "latitude", "value")
+
+points_df <- d2[d2$data_time == time_point, c("longitude", "latitude", "data_value")]
+
+arbitrary_points <- data.frame(
+        longitude = c(85),  # Example coordinates - replace with your desired points
+        latitude = c(25)       # Example coordinates - replace with your desired points
+)
+
+ggplot() +
+        geom_raster(data = raster_df, aes(x = longitude, y = latitude, fill = value)) +
+        geom_point(data = points_df, aes(x = longitude, y = latitude),
+                   color = "white", size = 0.5, shape = 21, fill = "white") +
+        geom_point(data = arbitrary_points, aes(x = longitude, y = latitude),
+                   color = "blue", size = 4, shape = 23, fill = "yellow") +
+        scale_fill_viridis_c(name = "Interpolated Value") +
+        theme_bw() +  # Use theme_bw() for a non-transparent white background
+        theme(
+                panel.background = element_rect(fill = "white", color = "black"),  # White panel background
+                plot.background = element_rect(fill = "white", color = NA),  # White plot background
+                legend.background = element_rect(fill = "white", color = NA)  # White legend background
+        ) +
+        labs(
+                title = paste("Inverse Distance Weighing Interpolation (D2)"),
+                subtitle = paste("Time:", format(idw_result$time)),
+                x = "Longitude",
+                y = "Latitude"
+        )
+
+ggsave('plots/idw_d2.png', dpi = 300)
+```
+Now, let's do the same thing for D3.
+```{r}
+d3 <- read_feather('data/full_monsoon.feather')
+
+if(!inherits(d3$data_time, "POSIXct")) {
+  d3$data_time <- as.POSIXct(d3$data_time)
+}
+
+# specific time point for interpolation
+time_point <- unique(d3$data_time)[1]
+
+idw_result <- perform_idw(d3, time_point)
+
+raster_df <- as.data.frame(rasterToPoints(idw_result$raster))
+colnames(raster_df) <- c("longitude", "latitude", "value")
+
+points_df <- d3[d3$data_time == time_point, c("longitude", "latitude", "data_value")]
+
+arbitrary_points <- data.frame(
+        longitude = c(85),  # Example coordinates - replace with your desired points
+        latitude = c(25)       # Example coordinates - replace with your desired points
+)
+
+ggplot() +
+  geom_raster(data = raster_df, aes(x = longitude, y = latitude, fill = value)) +
+  geom_point(data = points_df, aes(x = longitude, y = latitude),
+             color = "white", size = 0.5, shape = 21, fill = "white") +
+        geom_point(data = arbitrary_points, aes(x = longitude, y = latitude),
+                   color = "blue", size = 4, shape = 23, fill = "yellow") +
+  scale_fill_viridis_c(name = "Interpolated Value") +
+  theme_bw() +  # Use theme_bw() for a non-transparent white background
+  theme(
+    panel.background = element_rect(fill = "white", color = "black"),  # White panel background
+    plot.background = element_rect(fill = "white", color = NA),  # White plot background
+    legend.background = element_rect(fill = "white", color = NA)  # White legend background
+  ) +
+  labs(
+    title = paste("Inverse Distance Weighing Interpolation"),
+    subtitle = paste("Time:", format(idw_result$time)),
+    x = "Longitude",
+    y = "Latitude"
+  )
+
+ggsave('plots/idw_d3.png', dpi = 300)
 ```
