@@ -25,15 +25,6 @@ d3 <- read_feather('data/full_monsoon.feather')
 full_data <-read_feather('data/gwl_2023_24.feather')
 ```
 
-
-```{r}
-
-
-```
-
-
-
-
 But first, we have to define a model. Using D1 for our first model, let us see what it can come up with.
 ```{r}
 d1$data_time <- as.POSIXct(d1$data_time)
