@@ -12,7 +12,7 @@ library(ggplot2)
 library(rmarkdown)
 library(lubridate)
 
-gwl_2023_24 <- read_feather('data/gwl_2023_24.feather')
+gwl_2023_24 <- read_feather('data/gwl_23_24_filtered.feather')
 glimpse(gwl_2023_24)
 ```
 

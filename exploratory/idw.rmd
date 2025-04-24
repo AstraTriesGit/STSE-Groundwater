@@ -10,9 +10,7 @@ spatio-temporal analysis techniques.
 We will be using the code provided in _(Wikle et al., 2019)_ to perform inverse distance weighing for
 deterministic prediction.
 ```{r}
-install.packages(c('dplyr', 'fields', 'ggplot2', 'gstat', 'RColorBrewer', 'sp', 'spacetime', 'devtools', 'raster'))
-
-
+# install.packages(c('dplyr', 'fields', 'ggplot2', 'gstat', 'RColorBrewer', 'sp', 'spacetime', 'devtools', 'raster'))
 library(dplyr)
 library(fields)
 library(ggplot2)
@@ -23,49 +21,15 @@ library(spacetime)
 library(devtools)
 library(feather)
 library(raster)
-
-install_github('andrewzm/STRBook')
 library(STRbook)
-```
-We have not been able to make the gstat library work for us.
-Time to implement IDW from scratch. Let's get the predefined things ready.
 
-```{r}
 d1 <- read_feather('data/premonsoon_monsoon.feather')
-d1_aug <- d1 %>%
-  filter(as.Date(data_time) == as.Date('2023-08-01'))
-
-pred_grid <- expand.grid(longitude = seq(floor(min(d1_aug$longitude)), ceiling(max(d1_aug$longitude)),
-                                         length = 20),
-                         latitude = seq(floor(min(d1_aug$latitude)), ceiling(max(d1_aug$latitude)),
-                                        length = 20),
-                         data_time = seq(4, 29, length = 6))
-
-pred_obs_dist_matrix <- rdist(select(pred_grid, longitude, latitude, data_time),
-                              select(d1_aug, longitude, latitude, data_time))
-
-Wt_IDW <- function (theta, dist_mat) 1/ (dist_mat ^ theta)
-Wtilde <- Wt_IDW(theta = 5, dist_mat = pred_obs_dist_matrix)
-
-Wtilde_rsums <- rowSums(Wtilde)
-W <- Wtilde/Wtilde_rsums
-
-data_predict_IDW <- as.numeric(W %*% d1_aug$data_value)
-glimpse(pred_grid)
-
-summary(d1_aug$longitude)
-summary(d1_aug$latitude)
-
-min(d1_aug$longitude)
-ceiling(max(d1_aug$longitude))
-
-arbitrary_points <- data.frame(
-        longitude = c(73),  # Example coordinates - replace with your desired points
-        latitude = c(27.5)       # Example coordinates - replace with your desired points
-)
+d2 <- read_feather('data/premonsoon_postmonsoon.feather')
+d3 <- read_feather('data/full_monsoon.feather')
+dataset <- read_feather('data/gwl_23_24_filtered.feather')
 ```
 
-Claude pls
+This is the function to call IDW.
 ```{r}
 perform_idw <- function(data, time_point, power = 2, resolution = 0.01) {
   data_at_time <- data[data$data_time == time_point, ]
@@ -134,93 +98,172 @@ ggplot() +
 
 ggsave('plots/idw_d1.png', dpi = 300)
 ```
-Looks cool. Let us see the same procedure on the other datasets.
-```{r}
-d2 <- read_feather('data/premonsoon_postmonsoon.feather')
+Let's see.
 
-if(!inherits(d2$data_time, "POSIXct")) {
-  d2$data_time <- as.POSIXct(d2$data_time)
+```{r}
+st_idw <- function(dataset, pred_loc, pred_time,
+                   coords_cols, time_col, value_col,
+                   dist_func = NULL, power = 2,
+                   max_dist = Inf, time_scale = 1,
+                   cutoff = 3, ...) {
+
+  # If no distance function provided, use default Euclidean distance
+  if (is.null(dist_func)) {
+    dist_func <- function(x1, y1, t1, x2, y2, t2, time_scale = 1) {
+      spatial_dist <- sqrt((x2 - x1)^2 + (y2 - y1)^2)
+      temporal_dist <- abs(t2 - t1) * time_scale
+      return(sqrt(spatial_dist^2 + temporal_dist^2))
+    }
+  }
+
+  # Extract coordinates, time and values from dataset
+  if (is.character(coords_cols)) {
+    x_coords <- dataset[[coords_cols[1]]]
+    y_coords <- dataset[[coords_cols[2]]]
+  } else {
+    x_coords <- dataset[[coords_cols[1]]]
+    y_coords <- dataset[[coords_cols[2]]]
+  }
+
+  if (is.character(time_col)) {
+    times <- dataset[[time_col]]
+  } else {
+    times <- dataset[[time_col]]
+  }
+
+  if (is.character(value_col)) {
+    values <- dataset[[value_col]]
+  } else {
+    values <- dataset[[value_col]]
+  }
+
+  # Calculate distances between prediction point and all data points
+  distances <- numeric(length(values))
+  for (i in seq_along(values)) {
+    distances[i] <- dist_func(x_coords[i], y_coords[i], times[i],
+                              pred_loc[1], pred_loc[2], pred_time,
+                              time_scale = time_scale, ...)
+  }
+
+  # Filter points based on max_dist
+  valid_indices <- which(distances <= max_dist & !is.na(distances))
+
+  # Check if we have enough points
+  if (length(valid_indices) < cutoff) {
+    warning(paste("Only", length(valid_indices), "points found within max_dist. Minimum required:", cutoff))
+    return(list(
+            prediction = NA,
+            n_points_used = length(valid_indices),
+            mean_distance = ifelse(length(valid_indices) > 0, mean(distances[valid_indices]), NA),
+            weights = NA,
+            distances = distances
+    ))
+  }
+
+  # Subset to valid points
+  filtered_distances <- distances[valid_indices]
+  filtered_values <- values[valid_indices]
+
+  # Calculate weights (inverse distance)
+  weights <- 1 / (filtered_distances ^ power)
+
+  # Handle case where prediction point coincides with a data point
+  if (any(filtered_distances == 0)) {
+    exact_match <- which(filtered_distances == 0)[1]
+    prediction <- filtered_values[exact_match]
+    weights <- numeric(length(filtered_distances))
+    weights[exact_match] <- 1
+  } else {
+    # Normalize weights
+    weights <- weights / sum(weights)
+
+    # Calculate weighted average
+    prediction <- sum(weights * filtered_values)
+  }
+
+  return(list(
+          prediction = prediction,
+          n_points_used = length(valid_indices),
+          mean_distance = mean(filtered_distances),
+          weights = weights,
+          distances = distances
+  ))
 }
 
-# specific time point for interpolation
-time_point <- unique(d2$data_time)[1]
 
-idw_result <- perform_idw(d2, time_point)
+custom_st_distance <- function(x1, y1, t1, x2, y2, t2,
+                               time_scale = 1,
+                               space_weight = 0.5,
+                               time_weight = 0.5) {
+  # Calculate spatial distance (Euclidean)
+  spatial_dist <- sqrt((x2 - x1)^2 + (y2 - y1)^2)
 
-raster_df <- as.data.frame(rasterToPoints(idw_result$raster))
-colnames(raster_df) <- c("longitude", "latitude", "value")
+  # Calculate temporal distance with scaling
+  temporal_dist <- abs(t2 - t1) * time_scale
 
-points_df <- d2[d2$data_time == time_point, c("longitude", "latitude", "data_value")]
+  # Combine using weighted approach
+  combined_dist <- space_weight * spatial_dist + time_weight * temporal_dist
 
-arbitrary_points <- data.frame(
-        longitude = c(85),  # Example coordinates - replace with your desired points
-        latitude = c(25)       # Example coordinates - replace with your desired points
-)
-
-ggplot() +
-        geom_raster(data = raster_df, aes(x = longitude, y = latitude, fill = value)) +
-        geom_point(data = points_df, aes(x = longitude, y = latitude),
-                   color = "white", size = 0.5, shape = 21, fill = "white") +
-        geom_point(data = arbitrary_points, aes(x = longitude, y = latitude),
-                   color = "blue", size = 4, shape = 23, fill = "yellow") +
-        scale_fill_viridis_c(name = "Interpolated Value") +
-        theme_bw() +  # Use theme_bw() for a non-transparent white background
-        theme(
-                panel.background = element_rect(fill = "white", color = "black"),  # White panel background
-                plot.background = element_rect(fill = "white", color = NA),  # White plot background
-                legend.background = element_rect(fill = "white", color = NA)  # White legend background
-        ) +
-        labs(
-                title = paste("Inverse Distance Weighing Interpolation (D2)"),
-                subtitle = paste("Time:", format(idw_result$time)),
-                x = "Longitude",
-                y = "Latitude"
-        )
-
-ggsave('plots/idw_d2.png', dpi = 300)
-```
-Now, let's do the same thing for D3.
-```{r}
-d3 <- read_feather('data/full_monsoon.feather')
-
-if(!inherits(d3$data_time, "POSIXct")) {
-  d3$data_time <- as.POSIXct(d3$data_time)
+  return(combined_dist)
 }
-
-# specific time point for interpolation
-time_point <- unique(d3$data_time)[1]
-
-idw_result <- perform_idw(d3, time_point)
-
-raster_df <- as.data.frame(rasterToPoints(idw_result$raster))
-colnames(raster_df) <- c("longitude", "latitude", "value")
-
-points_df <- d3[d3$data_time == time_point, c("longitude", "latitude", "data_value")]
-
-arbitrary_points <- data.frame(
-        longitude = c(85),  # Example coordinates - replace with your desired points
-        latitude = c(25)       # Example coordinates - replace with your desired points
-)
-
-ggplot() +
-  geom_raster(data = raster_df, aes(x = longitude, y = latitude, fill = value)) +
-  geom_point(data = points_df, aes(x = longitude, y = latitude),
-             color = "white", size = 0.5, shape = 21, fill = "white") +
-        geom_point(data = arbitrary_points, aes(x = longitude, y = latitude),
-                   color = "blue", size = 4, shape = 23, fill = "yellow") +
-  scale_fill_viridis_c(name = "Interpolated Value") +
-  theme_bw() +  # Use theme_bw() for a non-transparent white background
-  theme(
-    panel.background = element_rect(fill = "white", color = "black"),  # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    legend.background = element_rect(fill = "white", color = NA)  # White legend background
-  ) +
-  labs(
-    title = paste("Inverse Distance Weighing Interpolation"),
-    subtitle = paste("Time:", format(idw_result$time)),
-    x = "Longitude",
-    y = "Latitude"
-  )
-
-ggsave('plots/idw_d3.png', dpi = 300)
 ```
+
+```{r}
+pred_loc <- c(73, 27.5)
+pred_time <- as.POSIXct("2023-10-01")
+
+idw_d1 <- st_idw(full_filtered, pred_loc, pred_time, c('longitude', 'latitude'), 'data_time', 'data_value', dist_func = custom_st_distance)
+glimpse(idw_d1)
+```
+Convincing enough.
+
+```{r}
+x_min <- min(dataset$longitude, na.rm = TRUE)
+x_max <- max(dataset$longitude, na.rm = TRUE)
+y_min <- min(dataset$latitude, na.rm = TRUE)
+y_max <- max(dataset$latitude, na.rm = TRUE)
+
+t_min <- min(dataset$data_time, na.rm = TRUE)
+t_max <- max(dataset$data_time, na.rm = TRUE)
+
+x_grid <- seq(x_min, x_max, length.out = 10)  # Increase/decrease for finer/coarser resolution
+y_grid <- seq(y_min, y_max, length.out = 10)
+t_grid <- c(as.POSIXct("2023-08-01"), as.POSIXct("2023-12-01"), as.POSIXct("2024-04-01"))
+
+
+# Initialize results matrix
+predictions <- array(NA, dim = c(length(x_grid), length(y_grid), length(t_grid)))
+
+# Perform predictions for visualization
+for (t_idx in 1:length(t_grid)) {
+  for (x_idx in 1:length(x_grid)) {
+    for (y_idx in 1:length(y_grid)) {
+      result <- st_idw(
+              dataset = dataset,
+              pred_loc = c(x_grid[x_idx], y_grid[y_idx]),
+              pred_time = t_grid[t_idx],
+              coords_cols = c("longitude", "latitude"),
+              time_col = "data_time",
+              value_col = "data_value",
+              power = 2,
+              time_scale = 0.5,
+              dist_func = custom_st_distance
+      )
+      predictions[x_idx, y_idx, t_idx] <- result$prediction
+    }
+  }
+}
+```
+
+Here's the formula for space-time cube distance in LaTeX:
+
+$$d_{\text{ST}}(\mathbf{p}, \mathbf{q}) = \sqrt{\left(\frac{x_p - x_q}{s_x}\right)^2 + \left(\frac{y_p - y_q}{s_y}\right)^2 + \left(\frac{t_p - t_q}{s_t}\right)^2}$$
+
+Where:
+- $\mathbf{p} = (x_p, y_p, t_p)$ and $\mathbf{q} = (x_q, y_q, t_q)$ are two points in the space-time cube
+- $(x_p, y_p, t_p)$ and $(x_q, y_q, t_q)$ are the spatial-temporal coordinates
+- $s_x$, $s_y$, and $s_t$ are scaling factors for each dimension
+- $s_x$ and $s_y$ normalize spatial units (e.g., meters, kilometers)
+- $s_t$ normalizes temporal units (e.g., seconds, days) to make them comparable with spatial units
+
+The scaling factors are crucial in the space-time cube approach as they explicitly address the different units and ranges of the spatial and temporal dimensions. These factors are often derived from the characteristic scales of the phenomena being studied or from the extent of the dataset.

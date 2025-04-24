@@ -22,7 +22,9 @@ library(stargazer)
 d1 <- read_feather('data/premonsoon_monsoon.feather')
 d2 <- read_feather('data/premonsoon_postmonsoon.feather')
 d3 <- read_feather('data/full_monsoon.feather')
-full_data <-read_feather('data/gwl_2023_24.feather')
+dataset <-read_feather('data/gwl_2023_24.feather')
+
+dataset <- read_feather('data/gwl_23_24_filtered.feather')
 ```
 
 But first, we have to define a model. Using D1 for our first model, let us see what it can come up with.
@@ -266,12 +268,96 @@ plot(v_st, fitted_st)
 
 
 ```{r}
-ols <- lm(d1)
-summary(full_data$data_value)
-hmm <- full_data %>% filter(data_value < -0.1 & data_value > -10)
-glimpse(hmm)
-summary(hmm$data_value)
-ggplot(hmm, mapping = aes(x = data_value)) + geom_histogram()
+library(tidyverse)
+
+dataset$data_time <- as.POSIXct(dataset$data_time)
+dataset$time_numeric <- as.numeric(dataset$data_time)
+
+# Extract useful features from data_time
+dataset$hour <- hour(dataset$data_time)
+dataset$day <- day(dataset$data_time)
+dataset$month <- month(dataset$data_time)
+dataset$year <- year(dataset$data_time)
+
+spatio_temp_data$lat_lon <- spatio_temp_data$latitude * spatio_temp_data$longitude
+
+spatio_temp_data$lat_time <- spatio_temp_data$latitude * spatio_temp_data$time_numeric
+spatio_temp_data$lon_time <- spatio_temp_data$longitude * spatio_temp_data$time_numeric
+
+
+dataset$lat_time <- dataset$latitude * dataset$time_numeric
+dataset$long_time <- dataset$longitude * dataset$time_numeric
+dataset$lat_long <- dataset$latitude * dataset$longitude
+
+# You can also add day of week, etc. if relevant
+
+# Fit the linear regression model
+model <- lm(data_value ~ latitude + longitude + month + lat_time + long_time + lat_long , data = dataset)
+
+# View summary of the model
+summary(model)
+
+# Check diagnostic plots
+par(mfrow = c(2, 2))
+plot(model)
 ```
 
+
+
+
+```{r}
+dataset$residuals <- residuals(model)
+
+residual_data <- data.frame(
+        data_time = dataset$data_time,
+        residual = dataset$residuals
+)
+
+residual_data <- residual_data[order(residual_data$data_time), ]
+
+set.seed(123)  # For reproducibility
+sample_indices <- sample(
+  seq_len(nrow(dataset)), 5000)
+sample_df <- dataset[sample_indices, ]
+
+
+ggplot(sample_df, aes(x = longitude, y = latitude, color = residuals)) +
+  geom_point(size = 2, alpha = 0.7) +
+  scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  labs(title = "Spatial Distribution of Residuals (Sample of 5000)") +
+  theme_minimal() +
+  coord_fixed()
+
+ggsave('plots/residuals_lm_time.png', dpi = 300)
+
+ggplot(sample_df, aes(x = data_time, y = residuals)) +
+        geom_point(alpha = 0.5) +  # Points with some transparency
+        geom_hline(yintercept = 0, color = "red", linetype = "dashed") +  # Reference line at y=0
+        labs(
+                x = "Time",
+                y = "Residuals",
+                title = "Residuals vs Time"
+        ) +
+        theme_minimal()
+
+
+
+ggplot(df, aes(x = longitude, y = latitude, color = residuals)) +
+        geom_point(size = 3, alpha = 0.7) +
+        scale_color_gradient2(
+                low = "blue",
+                mid = "white",
+                high = "red",
+                midpoint = 0,
+                name = "Residuals"
+        ) +
+        labs(
+                title = "Spatial Distribution of Residuals",
+                x = "Longitude",
+                y = "Latitude"
+        ) +
+        theme_minimal() +
+        coord_fixed()  # Keep aspect ratio of lat/lon correct
+
+```
 
