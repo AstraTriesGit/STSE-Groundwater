@@ -1,0 +1,46 @@
+---
+title: "R Notebook"
+output: html_document
+---
+
+```{r}
+library(feather)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+
+full_data <- read_feather('data/gwl_2023_24.feather')
+```
+```{r}
+filtered_data <- full_data %>% filter(data_value < -0.01 & data_value > -10)
+glimpse(filtered_data)
+summary(filtered_data$data_value)
+```
+Moving onto month-wise distributions.
+```{r}
+monthwise_dist <- filtered_data %>%
+        mutate(month = floor_date(data_time, unit = "month")) %>%
+        group_by(month) %>%
+        summarise(obs_per_month = n())
+
+glimpse(monthwise_dist)
+
+monthwise_dist$month <- as.Date(monthwise_dist$month)
+
+ggplot(monthwise_dist, aes(x = month, y = obs_per_month)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Number of Observations per Month",
+       x = "Month",
+       y = "Number of Observations") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y")
+```
+
+```{r}
+n_stations <- filtered_data %>%
+        group_by(latitude, longitude) %>%
+        summarise(obs_at_station = n())
+
+summary(n_stations$obs_at_station)
+```
