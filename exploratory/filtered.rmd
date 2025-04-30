@@ -1,22 +1,28 @@
 ---
-title: "R Notebook"
-output: html_document
+title: "Working With Actually Feasible Values in the GWL Dataset"
+output: pdf_document
 ---
-
+Statistics is not going to save you everytime. In fact, the misconception that it can be a stand-in for commonsense
+can, and will take lives down the road. _Why were you taking +ve values in the dataset?_
 ```{r}
 library(feather)
 library(dplyr)
 library(lubridate)
 library(ggplot2)
+library(readr)
 
 full_data <- read_feather('data/gwl_2023_24.feather')
 ```
+
+We have decided that data values falling outside the real range (-10, -0.01) are meaningless values that will not help
+with the analysis. Let's apply a filter and remove the improper observations.
 ```{r}
 filtered_data <- full_data %>% filter(data_value < -0.01 & data_value > -10)
 glimpse(filtered_data)
-summary(filtered_data$data_value)
 ```
-Moving onto month-wise distributions.
+
+We are left with around half the original dataset by applying this filter. The numbers are expected to be promising
+this time around. Next step is to find the _month-wise distribution._
 ```{r}
 monthwise_dist <- filtered_data %>%
         mutate(month = floor_date(data_time, unit = "month")) %>%
@@ -26,21 +32,61 @@ monthwise_dist <- filtered_data %>%
 glimpse(monthwise_dist)
 
 monthwise_dist$month <- as.Date(monthwise_dist$month)
-
 ggplot(monthwise_dist, aes(x = month, y = obs_per_month)) +
   geom_bar(stat = "identity", fill = "steelblue") +
+  geom_text(data = monthwise_dist, mapping = aes(label = obs_per_month)) +
   labs(title = "Number of Observations per Month",
        x = "Month",
        y = "Number of Observations") +
-  theme_minimal() +
+  theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y")
 ```
 
+
+The spread gives us some hope. Continuing the preliminary data understanding, we will now find the number of
+_observations at every station_.
 ```{r}
 n_stations <- filtered_data %>%
         group_by(latitude, longitude) %>%
         summarise(obs_at_station = n())
 
-summary(n_stations$obs_at_station)
+glimpse(n_stations)
 ```
+
+There are 2,955 unique stations left in our filtered dataset.
+We might have to violate our assumptions (single-digit number of observations made in one year) or just average over
+the observations in one month.
+Let's see how many stations we could fit in a balanced panel containing observations made in every month.
+```{r}
+filtered_data <- filtered_data %>%
+  filter(floor_date(data_time, unit = "month") != as.Date('2024-05-01'))
+
+filtered_data$data_time <- as.Date(filtered_data$data_time)
+filtered_data$month <- format(filtered_data$data_time, "%Y-%m")
+total_months <- length(unique(filtered_data$month))
+
+complete_locations <- filtered_data %>%
+  group_by(latitude, longitude) %>%
+  summarize(distinct_months = n_distinct(month)) %>%
+  filter(distinct_months == total_months)
+
+glimpse(complete_locations)
+```
+
+We have 645 locations which have made observations over the year. This gives us a large enough balanced panel
+to perform some meaningful spatio-temporal statistics. (7740 observations)
+```{r}
+panel_data <- filtered_data %>%
+  inner_join(complete_locations, by = c("longitude", "latitude")) %>%
+  mutate(data_time = floor_date(data_time, unit = "month")) %>%
+  group_by(longitude, latitude, data_time) %>%
+  summarise(reading = mean(data_value))
+
+glimpse(panel_data)
+summary(panel_data)
+
+write_csv(panel_data, "data/year_panel.csv")
+```
+
+We have panel data ready. Now we can perform our statistical exercises with it!

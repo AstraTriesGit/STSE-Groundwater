@@ -1,0 +1,125 @@
+---
+title: "Spatio-temporal Statistics on the Filtered GWL Dataset"
+output: pdf_document
+---
+
+For more information on how we obtained the balanced panel, kindly refer to `filtered.rmd`.
+```{r}
+# install.packages(c('readr', 'gstat', 'spacetime', 'sp', 'xts', 'fields'))
+
+library(readr)
+library(gstat)
+library(spacetime)
+library(sp)
+library(xts)
+library(lubridate)
+library(fields)
+
+gwl_panel <- read_csv("data/year_panel.csv")
+gwl_panel <- gwl_panel %>%
+  rename(x = longitude, y = latitude, time = data_time) %>%
+  mutate(time = floor_date(time, unit = "month"))
+```
+
+# Inverse Distance Weighing
+We will perform inverse distance weighing using different distance functions and parameters.
+```{r}
+# Euclidean Distance
+coords <- gwl_panel %>%
+  distinct(x, y)
+sp_points <- SpatialPoints(coords)
+
+time_index <- as.POSIXct(gwl_panel$time)
+time_index <- sort(unique(time_index))
+
+st_object <- STFDF(sp_points, time_index, data = gwl_panel[, !(names(gwl_panel) %in% c("x", "y", "time"))])
+
+st_variogram <- variogramST(reading~1, data = st_object)
+
+nrow(time_index)
+length(sp_points)
+```
+
+Let's see what results does IDW give under a different distance metric.
+```{r}
+# Weighted Combination of Spatial and Temporal Distance
+
+st_idw_weighted_combo <- function(data, newdata, value_col, coords_cols, time_col,
+                          w_spatial = 0.5, w_temporal = 0.5, idp = 2, nmax = 10) {
+  # get spatio-temporal locations and associated observations
+  coords_data <- data[, coords_cols]
+  times_data <- data[, time_col]
+  values_data <- data[, value_col]
+
+  # get locations to predict value in
+  coords_pred <- newdata[, coords_cols]
+  times_pred <- newdata[, time_col]
+
+  results <- numeric(nrow(newdata))
+  for (i in seq_len(nrow(newdata))) {
+    point_coord <- coords_pred[i, ]
+    point_time <- times_pred[i]
+
+    # spatial Euclidean distance
+    spatial_dists <- sqrt(rowSums((coords_data - matrix(point_coord,
+                                                        nrow = nrow(coords_data),
+                                                        ncol = length(point_coord),
+                                                        byrow = TRUE))^2))
+
+    # temporal distances (absolute time difference)
+    temporal_dists <- abs(as.numeric(difftime(times_data, point_time, units = "hours")))
+
+    # scaling!!
+    max_spatial <- max(spatial_dists)
+    max_temporal <- max(temporal_dists)
+    if (max_spatial > 0) spatial_dists <- spatial_dists / max_spatial
+    if (max_temporal > 0) temporal_dists <- temporal_dists / max_temporal
+
+    # combined distance, the key
+    combined_dists <- w_spatial * spatial_dists + w_temporal * temporal_dists
+
+    # nearest neighbours
+    if (nmax < length(combined_dists)) {
+      idx <- order(combined_dists)[1:nmax]
+    } else {
+      idx <- seq_along(combined_dists)
+    }
+
+    # calc weights and predict
+    if (all(combined_dists[idx] == 0)) {
+      # exact predictor goodness
+      exact_match <- which(combined_dists == 0)[1]
+      results[i] <- values_data[exact_match]
+    } else {
+      # Remove zeros to avoid division by zero
+      non_zero <- combined_dists[idx] > 0
+      if (sum(non_zero) > 0) {
+        weights <- 1 / (combined_dists[idx][non_zero]^idp)
+        weights <- weights / sum(weights)
+        results[i] <- sum(weights * values_data[idx][non_zero])
+      } else {
+        results[i] <- NA
+      }
+    }
+  }
+
+  return(results)
+}
+```
+```{r}
+prediction_grid <- expand.grid(x = seq(min(gwl_panel$x), max(gwl_panel$x), length = 10),
+                               y = seq(min(gwl_panel$y), max(gwl_panel$y), length = 10),
+                               time = as.POSIXct("2023-10-01"))
+prediction_grid$predicted_vals <- st_idw_weighted_combo(
+        data = gwl_panel,
+        newdata = prediction_grid,
+        value_col = 'reading',
+        coords_cols = c('x', 'y'),
+        time_col = 'time',
+        w_spatial = 0.7,
+        w_temporal = 0.3,
+        idp = 2,
+        nmax = 10
+)
+
+```
