@@ -14,7 +14,7 @@ install_github('andrewzm/STRBook')
 library(STRbook)
 
 set.seed(1)
-gwl_2023_24 <- read_feather('data/gwl_2023_24.feather')
+gwl_2023_24 <- read_feather('../../data/gwl_2023_24.feather')
 glimpse(gwl_2023_24)
 
 range(gwl_2023_24$latitude)

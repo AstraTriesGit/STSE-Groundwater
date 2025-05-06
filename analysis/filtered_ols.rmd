@@ -1,0 +1,262 @@
+---
+title: "Regression on Filtered GWL Dataset"
+output: pdf_document
+---
+
+For more information on how we obtained the balanced panel, kindly refer to `filtered.rmd`.
+```{r}
+# install.packages(c('readr', 'gstat', 'spacetime', 'sp', 'xts', 'fields', 'stargazer', 'ggplot2', 'maps'))
+
+library(readr)
+library(gstat)
+library(spacetime)
+library(sp)
+library(xts)
+library(lubridate)
+library(fields)
+library(stargazer)
+library(ggplot2)
+library(maps)
+library(tidyr)
+
+gwl_panel <- read_csv("../data/year_panel.csv")
+```
+
+Very quickly, let's perform a OLS regression on the dataset.
+```{r}
+df <- gwl_panel %>%
+  rename(x = longitude, y = latitude, time = data_time) %>%
+  mutate(time = as.numeric(floor_date(time, unit = "month")),
+         long_time = x * time,
+         lat_time = y * time,
+         lat_long = x * y)
+
+ols_model <- lm(reading ~ y + x + time + lat_time + long_time + lat_long,
+                data = df)
+summary(ols_model)
+
+stargazer(ols_model, type = "text",
+          title = "OLS Regression Model Statistics")
+```
+
+Let's have a look at the residuals very quickly.
+```{r}
+# spatial plot
+df$residuals <- ols_model$residuals
+
+df_chosen_times <- df %>%
+  filter(month(time) %in% c(5, 9, 11, 3))
+
+india_map <- map_data("world") %>%
+  filter(region == "India")
+
+ggplot() +
+  # Add the map as a polygon layer
+  geom_polygon(data = india_map,
+               aes(x = long, y = lat, group = group),
+               color = "black", alpha = 0, size = 0.1) +
+  geom_point(data = df_chosen_times,
+             aes(x = x, y = y, color = residuals),
+             size = 0.15) +
+        scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  coord_fixed(1.3) +
+  labs(title = "Spatial Plot of OLS Residuals over Months",
+       x = "Longitude",
+       y = "Latitude") +
+  facet_wrap(~time, nrow = 2)
+
+ggplot() +
+        geom_polygon(data = india_map,
+                     aes(x = long, y = lat, group = group),
+                     color = "black", alpha = 0, size = 0.1) +
+        geom_point(data = df_chosen_times,
+                   aes(x = x, y = y),
+                   size = 0.3, alpha = 0.5) +
+        coord_fixed(1.3) +
+        labs(title = "Region of Interest",
+             x = "Longitude",
+             y = "Latitude") +
+        theme_minimal()
+
+ggsave('../plots/region_of_interest.png', dpi = 600)
+```
+```{r}
+# time plot
+sample_size <- 2
+random_indices <- sample(seq_len(nrow(df)), size = sample_size)
+random_latlong <- df[random_indices, c("y", "x")]
+
+df_chosen_locations <- df %>%
+        inner_join(random_latlong, by = c("y", "x"))
+
+df_location_1 <- df_chosen_locations %>%
+        filter(x == random_latlong$x[1])
+df_location_2 <- df_chosen_locations %>%
+        filter(x == random_latlong$x[2])
+
+ggplot(df_location_1, aes(x = time, y = residuals)) +
+  geom_line() +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +  # Reference line at y=0
+  labs(
+    x = "Time",
+    y = "Residuals",
+    title = "Time Series Plot of OLS Residuals at Random Locations"
+  ) + geom_line(data = df_location_2, mapping = aes(x = time, y = residuals)) +
+  theme_bw()
+
+ggsave("../plots/ols_time_residuals.png", dpi = 300)
+```
+
+Nice job team.
+We need the empirical st-covariograms, now.
+```{r}
+# data version
+
+# Step 1: Create a spatial object
+coords <- df %>%
+        group_by(x, y) %>%
+        summarise()
+coords <- cbind(coords$x, coords$y)
+sp_obj <- SpatialPoints(coords)
+
+# Step 2: Create a temporal object
+dates <- df$time # 10 days
+dates <- unique(dates)
+time_obj <- xts(1:12, order.by=dates)
+
+# Step 3: Create a data frame with your observations
+n_locations <- length(sp_obj)
+n_times <- length(time_obj)
+
+# Combine into a data frame
+obs_data <- data.frame(
+        reading = df$reading,
+        residuals = df$residuals
+)
+
+# Step 4: Create the STFDF object
+stfdf_obj <- STFDF(sp = sp_obj, time = time_obj, data = obs_data)
+
+# Now you can access and manipulate your spatio-temporal data
+summary(stfdf_obj)
+
+var_residuals <- variogram(object = residuals~1,
+                data = stfdf_obj,
+                width = 2,
+                cutoff = 1000,
+                tlags =  0:11)
+
+var_og <- variogram(object = reading~1,
+                    data = stfdf_obj,
+                    width = 2,
+                    cutoff = 1000,
+                    tlags =  0:11)
+
+stvar_orig_df <- as.data.frame(var_og)
+stvar_resid_df <- as.data.frame(var_residuals)
+
+stvar_orig_df$type <- "Original Data"
+stvar_resid_df$type <- "Residuals"
+
+gamma_min <- min(combined_df$gamma, na.rm=TRUE)
+gamma_max <- max(combined_df$gamma, na.rm=TRUE)
+
+combined_df <- rbind(stvar_orig_df, stvar_resid_df)
+plot_variogram <- function(data, title, gamma_min, gamma_max) {
+  ggplot(data, aes(x=dist, y=timelag, fill=gamma)) +
+          geom_tile() +
+          scale_fill_viridis_c(limits=c(gamma_min, gamma_max)) +
+          labs(x="Spatial Distance", y="Time Lag", fill="Semivariance") +
+          theme_minimal() +
+          ggtitle(title)
+}
+
+# 6. Create both plots with the same color scale
+p1 <- plot_variogram(stvar_orig_df, "Original Data Variogram", gamma_min, gamma_max)
+p2 <- plot_variogram(stvar_resid_df, "Residuals Variogram", gamma_min, gamma_max)
+
+# 7. Arrange plots side by side with a shared legend
+grid.arrange(p1, p2, ncol=2)
+
+combined_plot <- ggplot(combined_df, aes(x=dist, y=timelag, fill=gamma)) +
+        # Use geom_raster instead of geom_tile
+        geom_tile(interpolate = FALSE) +
+        # Keep the same color scale for both plots
+        scale_fill_viridis_c(limits=c(gamma_min, gamma_max)) +
+        # Add facet for the two types
+        facet_wrap(~type) +
+        labs(x="Spatial Distance", y="Time Lag", fill="Semivariance") +
+        theme_minimal() +
+        # Remove grid lines that can emphasize gaps
+        theme(panel.grid = element_blank()) +
+        ggtitle("Comparison of Variograms")
+combined_plot
+
+plot(vv, main = "Empirical Semivariogram (Residuals)", xlab = "Distance (km)")
+```
+
+
+
+```{r}
+# test site
+grid_orig <- expand.grid(
+        dist = unique_dist,
+        timelag = unique_tlags,
+        type = "Original Data"
+)
+
+grid_resid <- expand.grid(
+        dist = unique_dist,
+        timelag = unique_tlags,
+        type = "Residuals"
+)
+
+# Combine grids
+complete_grid <- rbind(grid_orig, grid_resid)
+
+# Merge with actual data, filling missing values
+merged_data <- merge(complete_grid, combined_df,
+                     by=c("dist", "timelag", "type"),
+                     all.x=TRUE)
+```
+
+Statistical testing go!
+```{r}
+# Moran's I test
+P <- list()
+
+for(i in dates) {
+  gwl_month <- filter(df, df$time == i)
+  station.dists <- gwl_month %>%
+          select(x, y) %>%
+          dist() %>%
+          as.matrix()
+
+  station.dists.inv <- 1/station.dists
+  diag(station.dists.inv) <- 0 #
+
+  P[[i]] <- Moran.I(gwl_month$residuals, station.dists.inv) %>%
+          do.call("cbind", .)
+}
+
+P <- do.call("rbind", P)
+P <- as.data.frame(P)
+
+glimpse(P)
+summary(P)
+```
+```{r}
+# Durbin-Watson Test
+nested_gwl <- group_by(df, x, y) %>% nest()
+dwtest_one_station <- function(data)
+        dwtest(residuals ~ 1, data = data)
+map(nested_gwl$data, dwtest_one_station) %>% head()
+
+gwl_DW <- nested_gwl %>%
+        mutate(dw_test = map(data, dwtest_one_station)) %>%
+        mutate(dw_statistic = map_dbl(dw_test, ~.$statistic),
+               dw_pvalue = map_dbl(dw_test, ~.$p.value))
+
+mean(gwl_DW$dw_pvalue)
+mean(gwl_DW$dw_pvalue < 0.05/nrow(gwl_DW))
+```

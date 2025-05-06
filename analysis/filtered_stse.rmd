@@ -1,0 +1,77 @@
+---
+title: "Spatio-temporal Statistics on the Filtered GWL Dataset"
+output: pdf_document
+---
+
+For more information on how we obtained the balanced panel, kindly refer to `filtered.rmd`.
+```{r}
+# install.packages(c('readr', 'gstat', 'spacetime', 'sp', 'xts', 'fields'))
+
+library(readr)
+library(gstat)
+library(spacetime)
+library(sp)
+library(xts)
+library(lubridate)
+library(fields)
+
+gwl_panel <- read_csv("../data/year_panel.csv")
+gwl_panel <- gwl_panel %>%
+  rename(x = longitude, y = latitude, time = data_time) %>%
+  mutate(month_ = month(floor_date(time, unit = "month")))
+```
+
+# Inverse Distance Weighing
+We will perform inverse distance weighing using different distance functions and parameters.
+```{r}
+# Euclidean Distance
+
+
+pred_grid <- expand.grid(x = seq(min(gwl_panel$x), max(gwl_panel$x), length = 20),
+                         y = seq(min(gwl_panel$y), max(gwl_panel$y), length = 20),
+                         month_ = 10)
+
+pred_obs_dist_mat <- rdist(select(pred_grid, x, y, month_),
+                           select(gwl_panel, x, y, month_))
+
+Wt_IDW <- function(theta, dist_mat) 1/dist_mat^theta
+Wt_Gauss <- function (theta, dist_mat) exp(-dist_mat^2/theta)
+Wtilde <- Wt_Gauss(theta = 5, dist_mat = pred_obs_dist_mat)
+
+
+Wtilde_rsums <- rowSums(Wtilde)
+W <- Wtilde/Wtilde_rsums
+
+z_pred_IDW <- as.numeric(W %*% gwl_panel$reading)
+
+pred_results <- pred_grid %>%
+        mutate(prediction = z_pred_IDW)
+
+# Create the spatial plot
+special_location <- data.frame(
+        x = 77.1025,  # Replace with your desired longitude
+        y = 28.7041,   # Replace with your desired latitude
+        label = "Delhi"  # Optional label
+)
+
+
+ggplot() +
+        geom_tile(data = pred_results, aes(x = x, y = y, fill = prediction)) +
+        # Add the special location with a distinctive appearance
+        geom_point(data = special_location, aes(x = x, y = y),
+                   color = "red", size = 3, shape = 17) +  # Triangle shape
+        # Add a label for the special location
+        geom_text(data = special_location, aes(x = x, y = y, label = label),
+                  hjust = -0.2, vjust = -0.5, color = "red", fontface = "bold") +
+        scale_fill_viridis_c() +
+        coord_fixed() +
+        theme_minimal() +
+        labs(title = "Gaussian Kernel Prediction (theta = 5)",
+             x = "Longitude",
+             y = "Latitude",
+             fill = "Predicted Value")
+
+ggsave('../plots/gkp_5.png', dpi = 300)
+```
+
+Let's see what results does IDW give under a different distance metric.

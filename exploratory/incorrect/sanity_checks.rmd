@@ -10,7 +10,7 @@ library(feather)
 library(ggplot2)
 library(rmarkdown)
 
-gwl_2023_24 <- read_feather('../data/gwl_2023_24.feather')
+gwl_2023_24 <- read_feather('../../data/gwl_2023_24.feather')
 glimpse(gwl_2023_24)
 ```
 There are **4,308,184** rows of data for one year! This does not align with our ex-ante knowledge that the order

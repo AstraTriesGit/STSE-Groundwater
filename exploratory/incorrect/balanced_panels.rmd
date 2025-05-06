@@ -79,7 +79,7 @@ ggplot(monthly_freq, aes(x = month, y = obs_per_month)) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
   geom_label(data = monthly_freq, aes(label = obs_per_month))
 
-ggsave('plots/monthly_freq_2_obs.png')
+ggsave('../../plots/monthly_freq_2_obs.png')
 ```
 The above plot shows that there is potential in creating a balanced panel of observations from stations
 where observations were made in the following periods:
@@ -166,7 +166,7 @@ premonsoon_monsoon <- may_aug %>%
 
 
 glimpse(premonsoon_monsoon)
-write_feather(premonsoon_monsoon, 'data/premonsoon_monsoon.feather')
+write_feather(premonsoon_monsoon, '../../data/premonsoon_monsoon.feather')
 ```
 Correct dimensions confirmed.
 Moving onto the pre-monsoon-post-monsoon dataset.
@@ -180,7 +180,7 @@ premonsoon_postmonsoon <- d2_unclean %>%
   inner_join(d2_locations, by = c('latitude', 'longitude'))
 
 glimpse(premonsoon_postmonsoon)
-write_feather(premonsoon_postmonsoon, 'data/premonsoon_postmonsoon.feather')
+write_feather(premonsoon_postmonsoon, '../../data/premonsoon_postmonsoon.feather')
 ```
 Correct dimensions confirmed once again. This will conclude dataset creation on stations with 2 observations
 per year.
@@ -247,5 +247,5 @@ glimpse(d3)
 Dimensions confirmed.
 This will be part of the pre-monsoon-monsoon-post-monsoon analysis (certainly a lot of hyphens.)
 ```{r}
-write_feather(d3, 'data/full_monsoon.feather')
+write_feather(d3, '../../data/full_monsoon.feather')
 ```

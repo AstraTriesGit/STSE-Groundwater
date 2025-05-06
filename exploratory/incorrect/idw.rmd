@@ -23,9 +23,9 @@ library(feather)
 library(raster)
 library(STRbook)
 
-d1 <- read_feather('data/premonsoon_monsoon.feather')
-d2 <- read_feather('data/premonsoon_postmonsoon.feather')
-d3 <- read_feather('data/full_monsoon.feather')
+d1 <- read_feather('../../data/premonsoon_monsoon.feather')
+d2 <- read_feather('../../data/premonsoon_postmonsoon.feather')
+d3 <- read_feather('../../data/full_monsoon.feather')
 dataset <- read_feather('data/gwl_23_24_filtered.feather')
 ```
 
@@ -96,7 +96,7 @@ ggplot() +
                 y = "Latitude"
         )
 
-ggsave('plots/idw_d1.png', dpi = 300)
+ggsave('../../plots/idw_d1.png', dpi = 300)
 ```
 Let's see.
 

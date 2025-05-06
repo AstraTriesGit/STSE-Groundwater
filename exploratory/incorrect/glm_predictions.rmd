@@ -19,10 +19,10 @@ library(feather)
 library(splines)
 library(stargazer)
 
-d1 <- read_feather('data/premonsoon_monsoon.feather')
-d2 <- read_feather('data/premonsoon_postmonsoon.feather')
-d3 <- read_feather('data/full_monsoon.feather')
-dataset <-read_feather('data/gwl_2023_24.feather')
+d1 <- read_feather('../../data/premonsoon_monsoon.feather')
+d2 <- read_feather('../../data/premonsoon_postmonsoon.feather')
+d3 <- read_feather('../../data/full_monsoon.feather')
+dataset <-read_feather('../../data/gwl_2023_24.feather')
 
 dataset <- read_feather('data/gwl_23_24_filtered.feather')
 ```
@@ -136,7 +136,7 @@ plot(v_resid_dir, main = "Directional Variogram of Residuals")
 v_original <- variogram(data_value~1, data = d1)
 plot(v_original, main = "Empirical Variogram of Original Data")
 
-d1 <- read_feather('data/premonsoon_monsoon.feather')
+d1 <- read_feather('../../data/premonsoon_monsoon.feather')
 
 # For a more customized plot with ggplot2
 library(ggplot2)
@@ -338,7 +338,7 @@ ggplot(sample_df, aes(x = data_time, y = residuals)) +
                 y = "Residuals",
                 title = "Residuals vs Time"
         ) +
-        theme_minimal()
+        theme_bw()
 
 
 
