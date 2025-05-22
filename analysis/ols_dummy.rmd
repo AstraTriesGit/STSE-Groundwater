@@ -1,0 +1,493 @@
+---
+title: "Updated OLS Regression Using Categorical Variables"
+output: pdf_document
+---
+
+For more information on how we obtained the balanced panel, kindly refer to `exploratory/filtered_panel.rmd`.
+```{r}
+# install.packages(c('readr', 'gstat', 'spacetime', 'sp', 'xts', 'fields', 'stargazer', 'ggplot2', 'maps'))
+
+library(maps)
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(stargazer)
+
+gwl_panel <- read_csv("data/year_panel.csv")
+```
+
+
+# Model Specification
+We will be adding the following categorical/dummy variables to our existing analysis:
+- `monsoon(s, t)` = 1 if `t` falls in the range June-September, 0 otherwise.
+- `indo_gangetic(s, t)` = 1 if `s` falls in the Indo-Gangetic region, 0 otherwise
+- `north_east(s, t)` = 1 if `s` falls in North-East India, 0 otherwise
+- `deccan(s, t)` = 1 if `s` falls in the Deccan plateau, 0 otherwise
+A visualisation will help us find the relevant locations, as well as find the coordinates that
+we will use to assign dummy variable values.
+```{r}
+india_map <- map_data("world") %>%
+  filter(region == "India")
+
+ggplot() +
+        labs(title = "Regions of Interest") +
+  geom_polygon(data = india_map,
+               aes(x = long, y = lat, group = group),
+               color = "black", alpha = 0, size = 0.1) +
+  geom_point(data = gwl_panel,
+             aes(x = longitude, y = latitude), size = 0.5) +
+  geom_rect(aes(xmin = 90, xmax = 96, ymin = 22, ymax = 28),
+            fill = NA, color = "red", size = 0.5, alpha = 0) +
+  geom_rect(aes(xmin = 73.50, xmax = 89.49, ymin = 23.5, ymax = 31.28),
+            fill = NA, color = "red", size = 0.5, alpha = 0) +
+  geom_rect(aes(xmin = 77, xmax = 81, ymin = 15, ymax = 20),
+            fill = NA, color = "red", size = 0.5, alpha = 0) +
+        annotate("text", x = 93, y = 28.5, label = "North-East Region",
+                 color = "red", size = 4, fontface = "bold") +
+        annotate("text", x = 81.495, y = 32, label = "Indo-Gangetic Region",
+                 color = "red", size = 4, fontface = "bold") +
+        annotate("text", x = 79, y = 20.5, label = "Deccan Region",
+                 color = "red", size = 4, fontface = "bold") +
+        theme(plot.title = element_text(size = 20, hjust = 0.5),
+              axis.title.x = element_text(size = 18),
+              axis.title.y = element_text(size = 18),
+              axis.text.x = element_text(size = 10),
+              axis.text.y = element_text(size = 10))
+
+ggsave("plots/roi_all.png", dpi = 150)
+```
+
+
+We will now add the required variables for our regression analysis.
+```{r}
+ne <- data.frame(xmin = 90, xmax = 96, ymin = 22, ymax = 28)
+indo_g <- data.frame(xmin = 73.50, xmax = 89.49, ymin = 23.5, ymax = 31.28)
+deccan_plateau <- data.frame(xmin = 77, xmax = 81, ymin = 15, ymax = 20)
+
+within_region <- function (x, y, region) {
+  return ((x >= region$xmin & x <= region$xmax & y >= region$ymin & y <= region$ymax))
+}
+
+df <- gwl_panel %>%
+  rename(x = longitude, y = latitude, time = data_time) %>%
+  mutate(time = as.numeric(month(floor_date(time, unit = "month"))),
+         long_time = x * time,
+         lat_time = y * time,
+         lat_long = x * y,
+         monsoon = as.numeric(time <= 9 & time >= 6),
+         indo_gangetic = as.numeric(within_region(x, y, indo_g)),
+         north_east = as.numeric(within_region(x, y, ne)),
+         deccan = as.numeric(within_region(x, y, deccan_plateau))
+  )
+
+  ols_model <- lm(reading ~ y + x + time + lat_time + long_time + lat_long +
+        monsoon + indo_gangetic + north_east + deccan,
+                data = df)
+
+summary(ols_model)
+# stargazer(ols_model, type = "text",
+#           title = "OLS Regression Model Statistics", omit.stat = "all", report = "vcs*")
+stargazer(ols_model, type = "text",
+          title = "OLS Regression Model Statistics", coef = NULL, p.auto = FALSE)
+```
+
+
+Time to visualise the residuals.
+```{r}
+df$residuals <- ols_model$residuals
+
+df_chosen_times <- df %>%
+        filter(month(time) %in% c(5, 9, 11, 3))
+
+india_map <- map_data("world") %>%
+        filter(region == "India")
+
+ggplot() +
+        # Add the map as a polygon layer
+        geom_polygon(data = india_map,
+                     aes(x = long, y = lat, group = group),
+                     color = "black", alpha = 0, size = 0.1) +
+        geom_point(data = df_chosen_times,
+                   aes(x = x, y = y, color = residuals),
+                   size = 0.15) +
+        scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+        coord_fixed(1.3) +
+        labs(title = "Spatial Plot of OLS Residuals over Months",
+             x = "Longitude",
+             y = "Latitude") +
+        facet_wrap(~time, nrow = 1) +
+        theme(plot.title = element_text(size = 20, hjust = 0.5),
+              axis.title.x = element_text(size = 18),
+              axis.title.y = element_text(size = 18),
+              axis.text.x = element_text(size = 10),
+              axis.text.y = element_text(size = 10),
+              legend.title = element_text(size = 18),
+              legend.text = element_text(size = 10),
+              strip.text = element_text(size = 18),
+              plot.margin = margin(0, 0, 0, 0))
+
+ggsave('plots/ols_space_residuals.png', dpi = 150)
+```
+```{r}
+sample_size <- 2
+random_indices <- sample(seq_len(nrow(df)), size = sample_size)
+random_latlong <- df[random_indices, c("y", "x")]
+
+df_chosen_locations <- df %>%
+        inner_join(random_latlong, by = c("y", "x"))
+
+df_location_1 <- df_chosen_locations %>%
+        filter(x == random_latlong$x[1])
+df_location_2 <- df_chosen_locations %>%
+        filter(x == random_latlong$x[2])
+
+ggplot(df_location_1, aes(x = time, y = residuals)) +
+        geom_line() +
+        geom_hline(yintercept = 0, color = "red", linetype = "dashed") +  # Reference line at y=0
+        labs(
+                x = "Time",
+                y = "Residuals",
+                title = "Time Series Plot of OLS Residuals at Random Locations"
+        ) + geom_line(data = df_location_2, mapping = aes(x = time, y = residuals)) +
+        theme_bw() +
+        theme(plot.title = element_text(size = 20, hjust = 0.5),
+              axis.title.x = element_text(size = 18),
+              axis.title.y = element_text(size = 18),
+              axis.text.x = element_text(size = 15),
+              axis.text.y = element_text(size = 15),
+              legend.title = element_text(size = 18),
+              legend.text = element_text(size = 10),
+              strip.text = element_text(size = 18),
+              plot.margin = margin(0, 0, 0, 0))
+
+ggsave('plots/ols_time_residuals.png', dpi = 150)
+```
+
+Variogram megacope.
+```{r}
+# data version
+coords <- df %>%
+        group_by(x, y) %>%
+        summarise()
+coords <- cbind(coords$x, coords$y)
+sp_obj <- SpatialPoints(coords)
+
+df <- df %>% mutate(timestamp = gwl_panel$data_time)
+dates <- df$timestamp
+dates <- unique(dates)
+# dates <- as.POSIXct(glue("2023-"))
+time_obj <- xts(1:12, order.by=dates)
+
+n_locations <- length(sp_obj)
+n_times <- length(time_obj)
+
+obs_data <- data.frame(
+        reading = df$reading,
+        residuals = df$residuals
+)
+stfdf_obj <- STFDF(sp = sp_obj, time = time_obj, data = obs_data)
+
+summary(stfdf_obj)
+```
+```{r}
+var_residuals <- variogram(object = residuals~1,
+                           data = stfdf_obj,
+                           width = 2,
+                           cutoff = 1000,
+                           tlags =  0:11)
+var_og <- variogram(object = reading~1,
+                    data = stfdf_obj,
+                    width = 2,
+                    cutoff = 1000,
+                    tlags =  0:11)
+
+# First, let's combine the variogram data with an identifier
+var_residuals$type <- "Residuals"
+var_og$type <- "Original"
+
+# Combine the two variograms into one data frame
+combined_var <- rbind(var_residuals, var_og)
+
+ggplot(combined_var, aes(x = dist, y = gamma)) +
+        geom_tile(aes(color = factor(timelag)), size = 2) +
+        facet_wrap(~ type, scales = "free_y") +
+        labs(
+                title = "Comparison of Spatiotemporal Variograms",
+                x = "Distance",
+                y = "Semivariance",
+                color = "Time Lag"
+        ) +
+        theme_bw() +
+        scale_color_viridis_d() # Using viridis color palette for better distinction
+
+
+# attempt 2
+# First, determine the common range for both variograms
+min_gamma <- min(min(var_og$gamma), min(var_residuals$gamma))
+max_gamma <- max(max(var_og$gamma), max(var_residuals$gamma))
+
+# Set up the plotting grid
+par(mfrow = c(1, 2))
+
+# Plot original data variogram with fixed zlim (color scale limits)
+plot(var_og,
+     main = "Empirical Semivariogram (Full Data)",
+     col.regions = viridis(100, option = "plasma", direction = -1),
+     zlim = c(min_gamma, max_gamma),  # Set fixed range for color scale
+     as.table = TRUE,
+     xlab = "Distance (km)",
+     ylab = "time lag (days)")
+
+# Plot residuals variogram with the same zlim
+plot(var_residuals,
+     main = "Empirical Semivariogram (Residuals)",
+     col.regions = viridis(100, option = "plasma", direction = -1),
+     zlim = c(min_gamma, max_gamma),  # Same fixed range
+     as.table = TRUE,
+     xlab = "Distance (km)",
+     ylab = "time lag (days)")
+
+# Reset plotting parameters
+par(mfrow = c(1, 1))
+```
+
+```{r}
+# First, extract the spatial component at time lag 0
+# This gives you the pure spatial covariogram
+spatial_covariogram <- var_og[var_og$timelag == 0, ]
+
+# Convert the variogram to covariogram
+# For a variogram, the relationship to covariance is:
+# gamma(h) = C(0) - C(h) where C(0) is the variance and C(h) is the covariance at distance h
+# So C(h) = C(0) - gamma(h)
+
+# First, estimate the total variance (sill)
+sill <- max(var_og$gamma, na.rm = TRUE)  # This is an approximation of C(0)
+
+# Calculate the covariance
+spatial_covariogram$covariance <- sill - spatial_covariogram$gamma
+
+# Plot the spatial covariogram
+plot(spatial_covariogram$dist, spatial_covariogram$covariance,
+     type = "b",  # Both points and lines
+     pch = 16,    # Solid circle points
+     main = "Spatial Covariogram ()",
+     xlab = "Distance (km)",
+     ylab = "Covariance",
+     ylim = c(0, sill))
+
+# Add a smooth curve to better visualize the trend
+lines(smooth.spline(spatial_covariogram$dist, spatial_covariogram$covariance),
+      col = "blue", lwd = 2)
+```
+
+```{r}
+# Extract the spatial variogram (time lag = 0)
+spatial_variogram <- var_og[var_og$timelag == 0, ]
+
+# Basic plot of the spatial variogram
+ggplot(spatial_variogram, aes(x = dist, y = gamma)) +
+        geom_point(size = 3, color = "blue") +
+        geom_smooth(method = "loess", se = TRUE, color = "red") +
+        labs(title = "Spatial Variogram",
+             x = "Distance (km)",
+             y = "Semivariance") +
+        theme_bw()
+```
+
+
+```{r}
+# Extract spatial variogram (time lag = 0) from both variograms
+spatial_var_residuals <- var_residuals[var_residuals$timelag == 0, ]
+spatial_var_og <- var_og[var_og$timelag == 0, ]
+
+# Combined plot with both variograms
+ggplot() +
+        geom_point(data = spatial_var_og, aes(x = dist, y = gamma, color = "Original Data")) +
+        geom_line(data = spatial_var_og, aes(x = dist, y = gamma, color = "Original Data")) +
+        geom_point(data = spatial_var_residuals, aes(x = dist, y = gamma, color = "Residuals")) +
+        geom_line(data = spatial_var_residuals, aes(x = dist, y = gamma, color = "Residuals")) +
+        scale_color_manual(values = c("Original Data" = "blue", "Residuals" = "red")) +
+        labs(x = "Distance", y = "Semivariance",
+             title = "Spatial Variograms",
+             color = "Data Type") +
+        theme_bw() +
+        theme(plot.title = element_text(size = 20, hjust = 0.5),
+              axis.title.x = element_text(size = 18),
+              axis.title.y = element_text(size = 18),
+              axis.text.x = element_text(size = 15),
+              axis.text.y = element_text(size = 15),
+              legend.title = element_text(size = 18),
+              legend.text = element_text(size = 12),
+              strip.text = element_text(size = 18),
+              plot.margin = margin(0, 0, 0, 0))
+
+ggsave('plots/sp_variogram.png', dpi = 150)
+```
+
+```{r}
+# Extract temporal variogram (typically using the smallest distance bin)
+# Find the smallest distance bin
+min_dist <- min(var_residuals$dist, na.rm = TRUE)
+
+# Extract temporal variogram for residuals and original data
+temporal_var_residuals <- var_residuals[var_residuals$dist == min_dist, ]
+temporal_var_og <- var_og[var_og$dist == min_dist, ]
+
+# Plot the temporal variograms
+ggplot() +
+  geom_point(data = temporal_var_og, aes(x = timelag, y = gamma, color = "Original Data")) +
+  geom_line(data = temporal_var_og, aes(x = timelag, y = gamma, color = "Original Data")) +
+  geom_point(data = temporal_var_residuals, aes(x = timelag, y = gamma, color = "Residuals")) +
+  geom_line(data = temporal_var_residuals, aes(x = timelag, y = gamma, color = "Residuals")) +
+  scale_color_manual(values = c("Original Data" = "blue", "Residuals" = "red")) +
+  labs(x = "Time Lag", y = "Semivariance",
+       title = "Temporal Variograms",
+       color = "Data Type") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 20, hjust = 0.5),
+        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 18),
+        axis.text.x = element_text(size = 15),
+        axis.text.y = element_text(size = 15),
+        legend.title = element_text(size = 18),
+        legend.text = element_text(size = 12),
+        strip.text = element_text(size = 18),
+        plot.margin = margin(0, 0, 0, 0))
+
+ggsave('plots/t_variogram.png', dpi = 150)
+```
+
+
+
+```{r}
+library(gstat)
+
+
+# Fit variogram model to spatial components
+model_var_og <- fit.variogram(spatial_var_og, vgm(psill = max(spatial_var_og$gamma, na.rm = TRUE)/2,
+                                                  model = "Exp",
+                                                  range = max(spatial_var_og$dist, na.rm = TRUE)/3))
+
+model_var_residuals <- fit.variogram(spatial_var_residuals, vgm(psill = max(spatial_var_residuals$gamma)/2,
+                                                                model = "Exp",
+                                                                range = max(spatial_var_residuals$dist)/3))
+
+# Extract parameters
+og_nugget <- model_var_og$psill[1]
+og_sill <- sum(model_var_og$psill)
+og_range <- model_var_og$range[2]  # Effective range for exponential model
+
+res_nugget <- model_var_residuals$psill[1]
+res_sill <- sum(model_var_residuals$psill)
+res_range <- model_var_residuals$range[2]
+
+# Plot with annotations
+ggplot() +
+  geom_point(data = spatial_var_og, aes(x = dist, y = gamma, color = "Original Data")) +
+  geom_line(data = spatial_var_og, aes(x = dist, y = gamma, color = "Original Data")) +
+  geom_point(data = spatial_var_residuals, aes(x = dist, y = gamma, color = "Residuals")) +
+  geom_line(data = spatial_var_residuals, aes(x = dist, y = gamma, color = "Residuals")) +
+  scale_color_manual(values = c("Original Data" = "blue", "Residuals" = "red")) +
+
+  # Add horizontal lines for sills
+  geom_hline(yintercept = og_sill, linetype = "dashed", color = "blue") +
+  geom_hline(yintercept = res_sill, linetype = "dashed", color = "red") +
+
+  # Add horizontal lines for nuggets
+  geom_hline(yintercept = og_nugget, linetype = "dotted", color = "blue") +
+  geom_hline(yintercept = res_nugget, linetype = "dotted", color = "red") +
+
+  # Add vertical lines for ranges
+  geom_vline(xintercept = og_range, linetype = "dashed", color = "blue") +
+  geom_vline(xintercept = res_range, linetype = "dashed", color = "red") +
+
+  # Add annotations
+  annotate("text", x = max(spatial_var_og$dist) * 0.8, y = og_sill,
+           label = paste("Sill =", round(og_sill, 2)), color = "blue", hjust = 0) +
+  annotate("text", x = max(spatial_var_og$dist) * 0.8, y = res_sill,
+           label = paste("Sill =", round(res_sill, 2)), color = "red", hjust = 0) +
+
+  annotate("text", x = max(spatial_var_og$dist) * 0.8, y = og_nugget,
+           label = paste("Nugget =", round(og_nugget, 2)), color = "blue", hjust = 0) +
+  annotate("text", x = max(spatial_var_og$dist) * 0.8, y = res_nugget,
+           label = paste("Nugget =", round(res_nugget, 2)), color = "red", hjust = 0) +
+
+  annotate("text", x = og_range, y = max(spatial_var_og$gamma) * 0.9,
+           label = paste("Range =", round(og_range, 2)), color = "blue", angle = 90, hjust = 1) +
+  annotate("text", x = res_range, y = max(spatial_var_og$gamma) * 0.9,
+           label = paste("Range =", round(res_range, 2)), color = "red", angle = 90, hjust = 1) +
+
+  labs(x = "Distance", y = "Semivariance",
+       title = "Spatial Variograms with Parameters",
+       color = "Data Type") +
+  theme_bw()
+```
+
+
+Statistical testing go!
+```{r}
+# Moran's I test
+P <- list()
+dates <- df$time
+unique_dates <- unique(df$time)
+for(i in unique_dates) {
+  gwl_month <- filter(df, df$time == i)
+  station.dists <- gwl_month %>%
+    select(x, y) %>%
+    dist() %>%
+    as.matrix()
+
+  station.dists.inv <- 1/station.dists
+  diag(station.dists.inv) <- 0 #
+
+  P[[i]] <- Moran.I(gwl_month$residuals, station.dists.inv) %>%
+    do.call("cbind", .)
+}
+
+P <- do.call("rbind", P)
+P <- as.data.frame(P)
+
+glimpse(P)
+summary(P)
+sum(P$observed)
+```
+
+
+```{r}
+# Calculate global Moran's I
+# First create the distance matrix for all observations
+station.dists <- df %>%
+  select(x, y) %>%
+  dist() %>%
+  as.matrix()
+
+# Create inverse distance weights matrix
+station.dists.inv <- 1/station.dists
+diag(station.dists.inv) <- 0  # Set diagonal to zero to avoid self-influence
+
+# Calculate global Moran's I
+global_moran <- Moran.I(df$residuals, station.dists.inv)
+
+# Display the results
+print(global_moran)
+```
+
+```{r}
+# Durbin-Watson Test
+nested_gwl <- group_by(df, x, y) %>% nest()
+dwtest_one_station <- function(data)
+  dwtest(residuals ~ 1, data = data)
+map(nested_gwl$data, dwtest_one_station) %>% head()
+
+gwl_DW <- nested_gwl %>%
+  mutate(dw_test = map(data, dwtest_one_station)) %>%
+  mutate(dw_statistic = map_dbl(dw_test, ~.$statistic),
+         dw_pvalue = map_dbl(dw_test, ~.$p.value))
+
+
+mean(gwl_DW$dw_statistic)
+mean(gwl_DW$dw_pvalue)
+mean(gwl_DW$dw_pvalue < 0.05/nrow(gwl_DW))
+```
