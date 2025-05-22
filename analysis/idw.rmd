@@ -1,0 +1,109 @@
+---
+title: "Inverse Distance Weighing on the Filtered GWL Dataset"
+output: pdf_document
+---
+
+For more information on how we obtained the balanced panel, kindly refer to `exploratory/filtered_panel.rmd`.
+```{r}
+# install.packages(c('dplyr', 'readr', 'gstat', 'spacetime', 'sp', 'xts', 'fields', 'lubridate', 'ggplot2', 'glue'))
+
+library(dplyr)
+library(readr)
+library(gstat)
+library(spacetime)
+library(sp)
+library(xts)
+library(lubridate)
+library(fields)
+library(ggplot2)
+library(glue)
+
+gwl_panel <- read_csv("data/year_panel.csv")
+gwl_panel <- gwl_panel %>%
+  rename(x = longitude, y = latitude, time = data_time) %>%
+  mutate(month_ = month(floor_date(time, unit = "month")))
+```
+
+We will perform **inverse distance weighing** using different distance functions and parameters.
+First and foremost, we will be using Euclidean distance, using the code in _(Wikle et al., 2015)_
+```{r}
+# Euclidean Distance
+euclidean <- function (theta) {
+  all_results <- list()
+
+  for (i in seq_along(alpha_values)) {
+    alpha <- alpha_values[i]
+    pred_grid <- expand.grid(x = seq(min(gwl_panel$x), max(gwl_panel$x), length = 30),
+                             y = seq(min(gwl_panel$y), max(gwl_panel$y), length = 30),
+                             month_ = 10)
+    pred_obs_dist_mat <- rdist(select(pred_grid, x, y, month_),
+                               select(gwl_panel, x, y, month_))
+
+    # list of kernels to use
+    # Wt_IDW <- function(theta_, dist_mat) 1/dist_mat^theta_
+    Wt_Gauss <- function (theta_, dist_mat) exp(-dist_mat^2/theta_)
+
+    Wtilde <- Wt_Gauss(theta_ = alpha, dist_mat = pred_obs_dist_mat)
+    Wtilde_rsums <- rowSums(Wtilde)
+    W <- Wtilde/Wtilde_rsums
+    z_pred_IDW <- as.numeric(W %*% gwl_panel$reading)
+
+    all_results[[i]] <- pred_grid %>%
+      mutate(prediction = z_pred_IDW,
+             alpha = as.factor(alpha))
+  }
+  do.call(rbind, all_results)
+}
+
+euclidean_plot <- function (alpha_values) {
+  pred_results <- euclidean(alpha_values)
+
+  delhi <- data.frame(
+    x = 77.1025,
+    y = 28.7041,
+    label = "Delhi"
+  )
+
+  pred_results <- pred_results %>% rename(theta = alpha)
+  ggplot() +
+    geom_tile(data = pred_results, aes(x = x, y = y, fill = prediction)) +
+    geom_point(data = delhi, aes(x = x, y = y),
+               color = "white", size = 3, shape = 17) +
+    geom_text(data = delhi, aes(x = x, y = y, label = label),
+              hjust = -0.2, vjust = -0.5, color = "white", size = 5) +
+    scale_fill_viridis_c(name = "Predicted \nLevel (m)") +
+    coord_fixed() +
+    facet_wrap(~ theta, labeller = label_both) +  # Create facets by alpha value
+    theme_minimal() +
+    labs(title = "Gaussian Radial Basis Kernel (Euclidean Distance)",
+         x = "Longitude",
+         y = "Latitude",
+         fill = "Predicted Value") +
+    theme(plot.title = element_text(size = 20, hjust = 0.5),
+          axis.title.x = element_text(size = 18),
+          axis.title.y = element_text(size = 18),
+          axis.text.x = element_text(size = 10),
+          axis.text.y = element_text(size = 10),
+          legend.title = element_text(size = 18),
+          legend.text = element_text(size = 10),
+          strip.text = element_text(size = 18),
+          plot.margin = margin(0, 0, 0, 0))
+}
+
+alpha_values <- c(1, 0.2, 0.01)
+euclidean_plot(alpha_values)
+
+ggsave("plots/gkp_all_subzero.png", dpi = 150)
+
+# function calls to previous versions without faceting
+# alpha <- 1
+# pred_results <- euclidean(alpha)
+# euclidean_plot(pred_results, alpha)
+```
+
+
+It is time to use Gaussian kernel prediction as well, using the same Euclidean distance metric.
+Oh wait, we could just use the above code with a small tweak!
+```{r}
+# Wt_Gauss <- function (theta_, dist_mat) exp(-dist_mat^2/theta_)
+```
