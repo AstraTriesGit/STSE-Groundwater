@@ -81,15 +81,20 @@ df <- gwl_panel %>%
          deccan = as.numeric(within_region(x, y, deccan_plateau))
   )
 
-  ols_model <- lm(reading ~ y + x + time + lat_time + long_time + lat_long +
+  ols_model <- lm(reading ~ y + x + lat_time + long_time + lat_long +
         monsoon + indo_gangetic + north_east + deccan,
                 data = df)
 
 summary(ols_model)
 # stargazer(ols_model, type = "text",
 #           title = "OLS Regression Model Statistics", omit.stat = "all", report = "vcs*")
-stargazer(ols_model, type = "text",
+stargazer(ols_model, type = "latex",
           title = "OLS Regression Model Statistics", coef = NULL, p.auto = FALSE)
+
+stargazer(ols_model,
+          title = "Alternate OLS Regression Model Statistics",
+          omit.table.layout = "n",
+          type = "text")  # or "html" or "latex"
 ```
 
 
@@ -194,12 +199,12 @@ summary(stfdf_obj)
 var_residuals <- variogram(object = residuals~1,
                            data = stfdf_obj,
                            width = 2,
-                           cutoff = 1000,
+                           cutoff = 5000,
                            tlags =  0:11)
 var_og <- variogram(object = reading~1,
                     data = stfdf_obj,
                     width = 2,
-                    cutoff = 1000,
+                    cutoff = 5000,
                     tlags =  0:11)
 
 # First, let's combine the variogram data with an identifier
@@ -253,51 +258,26 @@ par(mfrow = c(1, 1))
 ```
 
 ```{r}
-# First, extract the spatial component at time lag 0
-# This gives you the pure spatial covariogram
-spatial_covariogram <- var_og[var_og$timelag == 0, ]
+proj4string(stfdf_obj) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
 
-# Convert the variogram to covariogram
-# For a variogram, the relationship to covariance is:
-# gamma(h) = C(0) - C(h) where C(0) is the variance and C(h) is the covariance at distance h
-# So C(h) = C(0) - gamma(h)
-
-# First, estimate the total variance (sill)
-sill <- max(var_og$gamma, na.rm = TRUE)  # This is an approximation of C(0)
-
-# Calculate the covariance
-spatial_covariogram$covariance <- sill - spatial_covariogram$gamma
-
-# Plot the spatial covariogram
-plot(spatial_covariogram$dist, spatial_covariogram$covariance,
-     type = "b",  # Both points and lines
-     pch = 16,    # Solid circle points
-     main = "Spatial Covariogram ()",
-     xlab = "Distance (km)",
-     ylab = "Covariance",
-     ylim = c(0, sill))
-
-# Add a smooth curve to better visualize the trend
-lines(smooth.spline(spatial_covariogram$dist, spatial_covariogram$covariance),
-      col = "blue", lwd = 2)
-```
-
-```{r}
-# Extract the spatial variogram (time lag = 0)
-spatial_variogram <- var_og[var_og$timelag == 0, ]
-
-# Basic plot of the spatial variogram
-ggplot(spatial_variogram, aes(x = dist, y = gamma)) +
-        geom_point(size = 3, color = "blue") +
-        geom_smooth(method = "loess", se = TRUE, color = "red") +
-        labs(title = "Spatial Variogram",
-             x = "Distance (km)",
-             y = "Semivariance") +
-        theme_bw()
-```
+# Transform to UTM (choose zone based on your area)
+stfdf_proj <- spTransform(stfdf_obj, CRS("+init=epsg:32644"))  # UTM 44N
 
 
-```{r}
+max_dist <- max(dist(coordinates(stfdf_obj)))
+cutoff_dist <- max_dist * 0.5
+
+
+var_residuals <- variogram(object = residuals~1,
+                           data = stfdf_proj,
+                           width = 5000,     # 5 km bins
+                           cutoff = 200000,  # 200 km maximum
+                           tlags = 0:11)
+var_og <- variogram(object = reading~1,
+                           data = stfdf_proj,
+                           width = 5000,     # 5 km bins
+                           cutoff = 200000,  # 200 km maximum
+                           tlags = 0:11)
 # Extract spatial variogram (time lag = 0) from both variograms
 spatial_var_residuals <- var_residuals[var_residuals$timelag == 0, ]
 spatial_var_og <- var_og[var_og$timelag == 0, ]
@@ -309,7 +289,8 @@ ggplot() +
         geom_point(data = spatial_var_residuals, aes(x = dist, y = gamma, color = "Residuals")) +
         geom_line(data = spatial_var_residuals, aes(x = dist, y = gamma, color = "Residuals")) +
         scale_color_manual(values = c("Original Data" = "blue", "Residuals" = "red")) +
-        labs(x = "Distance", y = "Semivariance",
+        scale_x_continuous(labels = function(x) x/1000) +  # Convert to km on axis
+        labs(x = "Distance (km)", y = "Semivariance",
              title = "Spatial Variograms",
              color = "Data Type") +
         theme_bw() +

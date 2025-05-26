@@ -33,17 +33,17 @@ euclidean <- function (theta) {
 
   for (i in seq_along(alpha_values)) {
     alpha <- alpha_values[i]
-    pred_grid <- expand.grid(x = seq(min(gwl_panel$x), max(gwl_panel$x), length = 30),
-                             y = seq(min(gwl_panel$y), max(gwl_panel$y), length = 30),
+    pred_grid <- expand.grid(x = seq(min(gwl_panel$x), max(gwl_panel$x), length = 50),
+                             y = seq(min(gwl_panel$y), max(gwl_panel$y), length = 50),
                              month_ = 10)
     pred_obs_dist_mat <- rdist(select(pred_grid, x, y, month_),
                                select(gwl_panel, x, y, month_))
 
     # list of kernels to use
-    # Wt_IDW <- function(theta_, dist_mat) 1/dist_mat^theta_
-    Wt_Gauss <- function (theta_, dist_mat) exp(-dist_mat^2/theta_)
+    Wt_IDW <- function(theta_, dist_mat) 1/dist_mat^theta_
+    # Wt_Gauss <- function (theta_, dist_mat) exp(-dist_mat^2/theta_)
 
-    Wtilde <- Wt_Gauss(theta_ = alpha, dist_mat = pred_obs_dist_mat)
+    Wtilde <- Wt_IDW(theta_ = alpha, dist_mat = pred_obs_dist_mat)
     Wtilde_rsums <- rowSums(Wtilde)
     W <- Wtilde/Wtilde_rsums
     z_pred_IDW <- as.numeric(W %*% gwl_panel$reading)
@@ -58,24 +58,36 @@ euclidean <- function (theta) {
 euclidean_plot <- function (alpha_values) {
   pred_results <- euclidean(alpha_values)
 
+  india <- ne_countries(scale = "medium", returnclass = "sf", country = "India")
+  bbox <- st_bbox(c(xmin = min(pred_results$x),
+                    xmax = max(pred_results$x),
+                    ymin = min(pred_results$y),
+                    ymax = max(pred_results$y)),
+                  crs = st_crs(4326))
+  bbox_poly <- st_as_sfc(bbox)
+
+  # Crop India border to your prediction area
+  india_cropped <- st_intersection(india, bbox_poly)
   delhi <- data.frame(
     x = 77.1025,
     y = 28.7041,
     label = "Delhi"
   )
 
-  pred_results <- pred_results %>% rename(theta = alpha)
+  # pred_results <- pred_results %>% rename(theta = alpha)
   ggplot() +
     geom_tile(data = pred_results, aes(x = x, y = y, fill = prediction)) +
+          geom_sf(data = india, fill = NA, color = "white", size = 2.5) +
     geom_point(data = delhi, aes(x = x, y = y),
                color = "white", size = 3, shape = 17) +
     geom_text(data = delhi, aes(x = x, y = y, label = label),
               hjust = -0.2, vjust = -0.5, color = "white", size = 5) +
     scale_fill_viridis_c(name = "Predicted \nLevel (m)") +
-    coord_fixed() +
-    facet_wrap(~ theta, labeller = label_both) +  # Create facets by alpha value
+          coord_sf(xlim = c(min(pred_results$x), max(pred_results$x)),
+                   ylim = c(min(pred_results$y), max(pred_results$y)), expand = FALSE)  +
+    facet_wrap(~ alpha, labeller = label_both) +  # Create facets by alpha value
     theme_minimal() +
-    labs(title = "Gaussian Radial Basis Kernel (Euclidean Distance)",
+    labs(title = "Inverse Distance Weighing (Euclidean Distance)",
          x = "Longitude",
          y = "Latitude",
          fill = "Predicted Value") +
@@ -91,9 +103,10 @@ euclidean_plot <- function (alpha_values) {
 }
 
 alpha_values <- c(1, 0.2, 0.01)
+alpha_values <- c(2, 5, 10)
 euclidean_plot(alpha_values)
 
-ggsave("plots/gkp_all_subzero.png", dpi = 150)
+ggsave("plots/idw_all_subzero.png", dpi = 150)
 
 # function calls to previous versions without faceting
 # alpha <- 1
