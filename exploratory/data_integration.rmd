@@ -1,0 +1,67 @@
+---
+title: "Combining Disjoint GWL Datasets"
+output: pdf_document
+---
+
+Throughout the research process, we have acquired datasets from India-WRIS in the following order:
+- May 2023 - May 2024
+- May 2018 - May 2023
+- May 2014 - May 2018
+- May 2004 - May 2014 (6/9, TO BE RECEIVED)
+```{r}
+library(readxl)
+library(dplyr)
+library(purrr)
+library(fs)
+library(lobstr)
+library(feather)
+library(ggplot2)
+```
+
+## Integration of 2023-24 Data
+The GWL data for 2023-24 has both manual and telemetric datasets, which have to be combined with each other.
+```{r}
+# directory of Telemetric excel files
+excel_dir <- "data/CGWB_GWL_1-5-23_1-5-24/Telemetric"
+excel_files <- dir_ls(excel_dir, regexp = "\\.xlsx$")
+
+# concatenate the excel files
+gwl_2023_24 <- excel_files %>%
+  map_df(~ {
+    data <- read_xlsx(.x)
+    return(data)
+  })
+
+# appending Manual dataset
+manual <- read_xlsx("data/CGWB_GWL_1-5-23_1-5-24/Manual/9. Manual GWL_CGWB_1 May 2023 to 1 May 2023.xlsx")
+gwl_2023_24 <- gwl_2023_24 %>%
+  mutate(station_code = as.character(station_code)) %>%
+  bind_rows(mutate(manual, station_code = as.character(station_code)))
+```
+The column `station_code` is a double in `manual` but is of character type in the Telemetric datasets. A potential
+assumption to make here is that the string of characters is a hexadecimal representation, but this may not hold true.
+Either way, `station_code` has been coerced into the character datatype to enable `bind_rows`.
+
+### Possible Grouping Strategies
+In case a station's observations are of interest, their observations can be filtered by either of the following
+primary keys:
+- (latitude, longitude)
+- (name, district, state)
+
+The reliability of the strategies is yet to be established.
+
+
+
+
+The code chunk appears:
+```{r}
+```
+
+Type any R code in the chunk, for example:
+```{r}
+mycars <- within(mtcars, { cyl <- ordered(cyl) })
+mycars
+```
+
+Now, click the **Run** button on the chunk toolbar to [execute](https://www.jetbrains.com/help/pycharm/r-markdown.html#run-r-code) the chunk code. The result should be placed under the chunk.
+Click the **Knit and Open Document** to build and preview an output.
