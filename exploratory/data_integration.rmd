@@ -16,27 +16,42 @@ library(fs)
 library(lobstr)
 library(feather)
 library(ggplot2)
+library(tidyverse)
 ```
 
-## Integration of 2023-24 Data
-The GWL data for 2023-24 has both manual and telemetric datasets, which have to be combined with each other.
+## Datatypes and RDS Format Conversion
+We read all the Excel files provided by India-WRIS and combined them into different `.rds` files depending
+on the period and the measurement type (manual/telemetric.)
 ```{r}
-# directory of Telemetric excel files
-excel_dir <- "data/CGWB_GWL_1-5-23_1-5-24/Telemetric"
-excel_files <- dir_ls(excel_dir, regexp = "\\.xlsx$")
+# concatenate all Excel files in a period's telemetric folder
+combine_telemetric <- function (excel_dir) {
+  excel_files <- dir_ls(excel_dir, regexp = "\\.xlsx$")
+  # concatenate the excel files
+  combined <- excel_files %>%
+    map_df(~ {
+      data <- read_xlsx(.x)
+      data %>% drop_na()
+      return(data)
+    })
+  return (combined)
+}
 
-# concatenate the excel files
-gwl_2023_24 <- excel_files %>%
-  map_df(~ {
-    data <- read_xlsx(.x)
-    return(data)
-  })
+gwl_2023_24_telemetric <- combine_telemetric("data/CGWB_GWL_1-5-23_1-5-24/Telemetric")
 
-# appending Manual dataset
-manual <- read_xlsx("data/CGWB_GWL_1-5-23_1-5-24/Manual/9. Manual GWL_CGWB_1 May 2023 to 1 May 2023.xlsx")
-gwl_2023_24 <- gwl_2023_24 %>%
-  mutate(station_code = as.character(station_code)) %>%
-  bind_rows(mutate(manual, station_code = as.character(station_code)))
+
+col_spec <- rep("guess", 14)
+col_spec[2] <- "text"
+manual <- read_xlsx("data/CGWB_GWL_1-5-23_1-5-24/Manual/9. Manual GWL_CGWB_1 May 2023 to 1 May 2023.xlsx",
+                    col_types = col_spec)
+manual %>% summarise_all(~ sum(is.na(.)))
+
+manual_NA <- manual %>%
+  filter(is.na(station_code))
+
+glimpse(manual)
+
+saveRDS(gwl_2023_24, "data/rds/2023_24_telemetric.rds")
+saveRDS(manual, "data/rds/2023_24_manual.rds")
 ```
 The column `station_code` is a double in `manual` but is of character type in the Telemetric datasets. A potential
 assumption to make here is that the string of characters is a hexadecimal representation, but this may not hold true.
@@ -47,21 +62,50 @@ In case a station's observations are of interest, their observations can be filt
 primary keys:
 - (latitude, longitude)
 - (name, district, state)
+- (station_code)
 
 The reliability of the strategies is yet to be established.
 
 
-
-
-The code chunk appears:
+## Integration of 2018-23 Data
+Similarly, the GWL data for 2018-23 has both manual and telemetric datasets.
 ```{r}
+#
+excel_files <- dir_ls("data/GW Level Data 1 May 2018 to 1 May 2023/Telemetric Ground Water Level", regexp = "\\.xlsx$")
+hell <- map(excel_files, ~{
+  df <- read_xlsx(.x)
+  count_na(df)
+})
+
+
+
+
+
+
+count_na <- function (df) {
+  df %>% summarise_all(~ sum(is.na(.)))
+}
+
+# warnings: expecting numeric got NULL, coercing text to numeric (NaN)
+gwl_2018_23_telemetric <- combine_telemetric("data/GW Level Data 1 May 2018 to 1 May 2023/Telemetric Ground Water Level")
+
+na_df <- gwl_2018_23 %>% filter(is.na(latitude))
+glimpse(gwl_2018_23 %>% filter(is.na(latitude)))
+
+plot(na_df$data_value)
+
+# delete this later
+na_df <- na_df %>% filter(data_value < 1.1 & data_value > 0.9)
+na_df <- na_df %>% filter(data_value == 1)
+
+glimpse(na_df)
+plot(na_df$agency)
+ggplot(na_df) + geom_bar(aes(x = station_code))
+
 ```
 
-Type any R code in the chunk, for example:
-```{r}
-mycars <- within(mtcars, { cyl <- ordered(cyl) })
-mycars
-```
+Karnataka GW Agency wtf are you guys doing.
 
-Now, click the **Run** button on the chunk toolbar to [execute](https://www.jetbrains.com/help/pycharm/r-markdown.html#run-r-code) the chunk code. The result should be placed under the chunk.
-Click the **Knit and Open Document** to build and preview an output.
+```{r}
+
+```
