@@ -204,8 +204,9 @@ plot_residuals_over_time(df)
 ```
 
 # Variogram Analysis
-To use R's variogram tools, we first need to convert our data into a spatio-temporal data object. We will be using the
-STFDF object from the `spacetime` package. (spatio-temporal object with a full spacetime grid, which is ensured with our panel.)
+To use R's variogram tools, we first need to convert our data into a spatio-temporal data object. We will be
+using the STFDF object from the `spacetime` package.
+(spatio-temporal object with a full spacetime grid, which is ensured with our panel.)
 ```{r}
 convert_to_stfdf <- function(df) {
   coords <- df %>%
@@ -297,14 +298,18 @@ plot_temporal_variograms <- function(var_og, var_residuals) {
   temporal_var_residuals <- var_residuals[var_residuals$dist == min_dist, ]
   temporal_var_og <- var_og[var_og$dist == min_dist, ]
 
+  temporal_var_residuals$timelag_months <- as.numeric(temporal_var_residuals$timelag) / 30.44
+  temporal_var_og$timelag_months <- as.numeric(temporal_var_og$timelag) / 30.44
+
   # Plot the temporal variograms
   ggplot() +
-          geom_point(data = temporal_var_og, aes(x = timelag, y = gamma, color = "Original Data")) +
-          geom_line(data = temporal_var_og, aes(x = timelag, y = gamma, color = "Original Data")) +
-          geom_point(data = temporal_var_residuals, aes(x = timelag, y = gamma, color = "Residuals")) +
-          geom_line(data = temporal_var_residuals, aes(x = timelag, y = gamma, color = "Residuals")) +
+          geom_point(data = temporal_var_og, aes(x = timelag_months, y = gamma, color = "Original Data")) +
+          geom_line(data = temporal_var_og, aes(x = timelag_months, y = gamma, color = "Original Data")) +
+          geom_point(data = temporal_var_residuals, aes(x = timelag_months, y = gamma, color = "Residuals"))+
+          geom_line(data = temporal_var_residuals, aes(x = timelag_months, y = gamma, color = "Residuals")) +
           scale_color_manual(values = c("Original Data" = "blue", "Residuals" = "red")) +
-          labs(x = "Time Lag", y = "Semivariance",
+          scale_x_continuous(breaks = 0:11, labels = 0:11) +  # Show 0 to 11 months
+          labs(x = "Time Lag (Months)", y = "Semivariance",
                title = "Temporal Variograms",
                color = "Data Type") +
           theme_bw() +
@@ -320,7 +325,40 @@ plot_temporal_variograms <- function(var_og, var_residuals) {
 }
 
 plot_temporal_variograms(var_og, var_residuals)
-# ggsave('plots/t_variogram.png', dpi = 150)
+ggsave('plots/t_variogram.png', dpi = 150)
+```
+
+Looks like the spatio-temporal variogram plots have been lost to time. We'll have to plot them from scratch
+again. With proper time lags of monthly resolution!
+```{r}
+# this code section works if it is run in the R console, but not in RMarkdown.
+plot_stvar <- function (var, name) {
+  var_plot_data <- var
+  var_plot_data$timelag <- as.numeric(var_plot_data$timelag) / 30.44
+
+  png(paste("plots/stvar_", name, ".png"), width = 800, height = 600, res = 150)
+  plot(var_plot_data,
+       xlab = "Distance Lag (km)",
+       ylab = "Time Lag (Months)",
+       main = "Spatio-temporal Variogram (Residuals)"
+  )
+  dev.off()
+}
+
+plot_stvar(var_og, "Original")
+plot_stvar(var_residuals, "Residuals")
+
+
+var_plot_data <- var_residuals
+var_plot_data$timelag <- as.numeric(var_plot_data$timelag) / 30.44
+
+png("plots/stvar_original.png", width = 1920, height = 1080, res = 150)
+plot(var_plot_data,
+     xlab = "Distance Lag (km)",
+     ylab = "Time Lag (Months)",
+     main = "Spatio-temporal Variogram (Original Data)"
+)
+dev.off()
 ```
 
 # Statistical Testing
