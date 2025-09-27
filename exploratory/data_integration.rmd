@@ -42,27 +42,107 @@ write_feather(gwl_2023_24_telemetric, "data/combined/gwl_2023_24_telemetric.feat
 # changed datatype of station_code
 col_spec <- rep("guess", 14)
 col_spec[2] <- "text"
-manual <- read_xlsx("data/CGWB_GWL_1-5-23_1-5-24/Manual/9. Manual GWL_CGWB_1 May 2023 to 1 May 2023.xlsx",
+gwl_2023_24_manual <- read_xlsx("data/CGWB_GWL_1-5-23_1-5-24/Manual/9. Manual GWL_CGWB_1 May 2023 to 1 May 2023.xlsx",
                     col_types = col_spec)
-write_feather(manual, "data/combined/gwl_2023_24_manual.feather")
+write_feather(gwl_2023_24_manual, "data/combined/gwl_2023_24_manual.feather")
 
 # warnings: expecting numeric got NULL, coercing text to numeric (NaN)
 gwl_2018_23_telemetric <- combine_telemetric("data/GW Level Data 1 May 2018 to 1 May 2023/Telemetric Ground Water Level")
 write_feather(gwl_2018_23_telemetric, "data/combined/gwl_2018_23_telemetric.feather")
 
-manual <- read_xlsx("data/GW Level Data 1 May 2018 to 1 May 2023/Manual Ground Water Level/Manual Ground water Level from 1 May 2018 to 1 May 2023.xlsx",)
-write_feather(manual, "data/combined/gwl_2018_23_manual.feather")
+gwl_2018_23_manual <- read_xlsx("data/GW Level Data 1 May 2018 to 1 May 2023/Manual Ground Water Level/Manual Ground water Level from 1 May 2018 to 1 May 2023.xlsx",)
+write_feather(gwl_2018_23_manual, "data/combined/gwl_2018_23_manual.feather")
 
 gwl_2014_18 <- read_csv("data/CGWB_GWL_DATA_MAY2014_MAY2018.csv")
-write_feather(manual, "data/combined/gwl_2014_18.feather")
-spec(gwl_2014_18)
+write_feather(gwl_2014_18, "data/combined/gwl_2014_18.feather")
 ```
 We have created 5 `.feather` files and will assess the structure of the data in each file separately.
 
-##
+## Analysis of Telemetric 2023-24 Data
+```{r}
+gwl_2023_24_telemetric <- read_feather("data/combined/gwl_2023_24_telemetric.feather")
+glimpse(gwl_2023_24_telemetric)
+```
+Dimensions = 4,274,319 x 14
+We take the time to note the datatypes here since we require their consistency as we plan to combine the five files.
+For each file, we will observe the source of NA values.
+```{r}
+na_count <- gwl_2023_24_telemetric %>%
+  summarise_all(~sum(is.na(.)))
+glimpse(na_count)
+```
+Luckily enough, no NAs in any column. Moving on.
 
+## Analysis of Manual 2023-24 Data
+```{r}
+gwl_2023_24_manual <- read_feather("data/combined/gwl_2023_24_manual.feather")
+# glimpse(gwl_2023_24_manual) # confirmed to have the same schema
+na_count <- gwl_2023_24_manual %>%
+  summarise_all(~sum(is.na(.)))
+glimpse(na_count)
+```
+Dimensions = 33,865 x 14
+Once again, no NAs in any column. We will use `bind_rows()` to combine the last examined file.
 
+## Analysis of Telemetric 2018-23 Data
+```{r}
+combined <- bind_rows(gwl_2023_24_telemetric, gwl_2023_24_manual)
 
+gwl_2018_23_telemetric <- read_feather("data/combined/gwl_2018_23_telemetric.feather")
+# glimpse(gwl_2018_23_telemetric) # confirmed to have the same schema
+na_count <- gwl_2018_23_telemetric %>%
+  summarise_all(~sum(is.na(.)))
+glimpse(na_count)
+```
+Dimensions = 17,088,404 x 14
+This is where our luck runs out, with 127k observations missing (latitude, longitude) readings, as well as some missing
+values in `data_value`. For this version of the data pipeline, we are not going to attempt imputation and simply...drop
+missing observations.
+```{r}
+gwl_2018_23_telemetric <- drop_na(gwl_2018_23_telemetric)
+combined <- bind_rows(combined, gwl_2018_23_telemetric)
+```
+
+## Analysis of Manual 2018-23 Data
+```{r}
+gwl_2018_23_manual <- read_feather("data/combined/gwl_2018_23_manual.feather")
+glimpse(gwl_2018_23_manual) # confirmed to have the same schema
+na_count <- gwl_2018_23_manual %>%
+  summarise_all(~sum(is.na(.)))
+glimpse(na_count)
+```
+Dimensions = 674,846 x 14
+No NAs in data. However, (latitude, longitude) are strings. We have to convert them to doubles, but the numbers are
+possibly too precise.
+```{r}
+gwl_2018_23_manual <- gwl_2018_23_manual %>%
+    mutate(latitude = as.double(latitude),
+           longitude = as.double(longitude))
+```
+
+## Analysis of 2014-18 Data
+```{r}
+combined <- bind_rows(combined, gwl_2018_23_manual)
+
+gwl_2014_18 <- read_feather("data/combined/gwl_2014_18.feather")
+glimpse(gwl_2014_18) # hmm
+# na_count <- gwl_2014_18 %>%
+#   summarise_all(~sum(is.na(.)))
+# glimpse(na_count)
+```
+Dimensions = 261,942 x 12
+Evident issues with this table are:
+- missing columns (concat, unit_code)
+- extra columns (block_name)
+- incompatible column names
+  - station_name -> name
+  - lattitude -> latitude
+  - agency_name -> agency
+  - state_name -> state
+  - district_name -> district
+  - tehsil_name -> tahsil
+  - data_acquisition_time -> data_time
+- incompatible datatypes with current schema
 
 
 
