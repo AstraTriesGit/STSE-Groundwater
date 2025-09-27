@@ -19,8 +19,8 @@ library(ggplot2)
 library(tidyverse)
 ```
 
-## Datatypes and RDS Format Conversion
-We read all the Excel files provided by India-WRIS and combined them into different `.rds` files depending
+## Datatypes and `feather` Format Conversion
+We read all the Excel files provided by India-WRIS and combined them into different `.feather` files depending
 on the period and the measurement type (manual/telemetric.)
 ```{r}
 # concatenate all Excel files in a period's telemetric folder
@@ -37,25 +37,35 @@ combine_telemetric <- function (excel_dir) {
 }
 
 gwl_2023_24_telemetric <- combine_telemetric("data/CGWB_GWL_1-5-23_1-5-24/Telemetric")
+write_feather(gwl_2023_24_telemetric, "data/combined/gwl_2023_24_telemetric.feather")
 
-
+# changed datatype of station_code
 col_spec <- rep("guess", 14)
 col_spec[2] <- "text"
 manual <- read_xlsx("data/CGWB_GWL_1-5-23_1-5-24/Manual/9. Manual GWL_CGWB_1 May 2023 to 1 May 2023.xlsx",
                     col_types = col_spec)
-manual %>% summarise_all(~ sum(is.na(.)))
+write_feather(manual, "data/combined/gwl_2023_24_manual.feather")
 
-manual_NA <- manual %>%
-  filter(is.na(station_code))
+# warnings: expecting numeric got NULL, coercing text to numeric (NaN)
+gwl_2018_23_telemetric <- combine_telemetric("data/GW Level Data 1 May 2018 to 1 May 2023/Telemetric Ground Water Level")
+write_feather(gwl_2018_23_telemetric, "data/combined/gwl_2018_23_telemetric.feather")
 
-glimpse(manual)
+manual <- read_xlsx("data/GW Level Data 1 May 2018 to 1 May 2023/Manual Ground Water Level/Manual Ground water Level from 1 May 2018 to 1 May 2023.xlsx",)
+write_feather(manual, "data/combined/gwl_2018_23_manual.feather")
 
-saveRDS(gwl_2023_24, "data/rds/2023_24_telemetric.rds")
-saveRDS(manual, "data/rds/2023_24_manual.rds")
+gwl_2014_18 <- read_csv("data/CGWB_GWL_DATA_MAY2014_MAY2018.csv")
+write_feather(manual, "data/combined/gwl_2014_18.feather")
+spec(gwl_2014_18)
 ```
-The column `station_code` is a double in `manual` but is of character type in the Telemetric datasets. A potential
-assumption to make here is that the string of characters is a hexadecimal representation, but this may not hold true.
-Either way, `station_code` has been coerced into the character datatype to enable `bind_rows`.
+We have created 5 `.feather` files and will assess the structure of the data in each file separately.
+
+##
+
+
+
+
+
+
 
 ### Possible Grouping Strategies
 In case a station's observations are of interest, their observations can be filtered by either of the following
@@ -64,48 +74,6 @@ primary keys:
 - (name, district, state)
 - (station_code)
 
-The reliability of the strategies is yet to be established.
+If I had to choose, I would prefer matching on (latitude, longitude) since it is central to our
+calculations. Their biggest issue is floating point errors in comparisons, however.
 
-
-## Integration of 2018-23 Data
-Similarly, the GWL data for 2018-23 has both manual and telemetric datasets.
-```{r}
-#
-excel_files <- dir_ls("data/GW Level Data 1 May 2018 to 1 May 2023/Telemetric Ground Water Level", regexp = "\\.xlsx$")
-hell <- map(excel_files, ~{
-  df <- read_xlsx(.x)
-  count_na(df)
-})
-
-
-
-
-
-
-count_na <- function (df) {
-  df %>% summarise_all(~ sum(is.na(.)))
-}
-
-# warnings: expecting numeric got NULL, coercing text to numeric (NaN)
-gwl_2018_23_telemetric <- combine_telemetric("data/GW Level Data 1 May 2018 to 1 May 2023/Telemetric Ground Water Level")
-
-na_df <- gwl_2018_23 %>% filter(is.na(latitude))
-glimpse(gwl_2018_23 %>% filter(is.na(latitude)))
-
-plot(na_df$data_value)
-
-# delete this later
-na_df <- na_df %>% filter(data_value < 1.1 & data_value > 0.9)
-na_df <- na_df %>% filter(data_value == 1)
-
-glimpse(na_df)
-plot(na_df$agency)
-ggplot(na_df) + geom_bar(aes(x = station_code))
-
-```
-
-Karnataka GW Agency wtf are you guys doing.
-
-```{r}
-
-```
