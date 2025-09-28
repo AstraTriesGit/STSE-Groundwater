@@ -106,18 +106,22 @@ combined <- bind_rows(combined, gwl_2018_23_telemetric)
 ## Analysis of Manual 2018-23 Data
 ```{r}
 gwl_2018_23_manual <- read_feather("data/combined/gwl_2018_23_manual.feather")
-glimpse(gwl_2018_23_manual) # confirmed to have the same schema
+glimpse(gwl_2018_23_manual)
 na_count <- gwl_2018_23_manual %>%
   summarise_all(~sum(is.na(.)))
 glimpse(na_count)
 ```
 Dimensions = 674,846 x 14
 No NAs in data. However, (latitude, longitude) are strings. We have to convert them to doubles, but the numbers are
-possibly too precise.
+possibly too precise. Pending evaluation of null values.
 ```{r}
+# this introduces NAs in the dataset
 gwl_2018_23_manual <- gwl_2018_23_manual %>%
     mutate(latitude = as.double(latitude),
-           longitude = as.double(longitude))
+           longitude = as.double(longitude)) %>%
+    drop_na()
+
+
 ```
 
 ## Analysis of 2014-18 Data
@@ -126,9 +130,7 @@ combined <- bind_rows(combined, gwl_2018_23_manual)
 
 gwl_2014_18 <- read_feather("data/combined/gwl_2014_18.feather")
 glimpse(gwl_2014_18) # hmm
-# na_count <- gwl_2014_18 %>%
-#   summarise_all(~sum(is.na(.)))
-# glimpse(na_count)
+# also has NAs
 ```
 Dimensions = 261,942 x 12
 Evident issues with this table are:
@@ -142,18 +144,45 @@ Evident issues with this table are:
   - district_name -> district
   - tehsil_name -> tahsil
   - data_acquisition_time -> data_time
-- incompatible datatypes with current schema
+- incompatible datatypes with current schema (data_acquisition_time)
 
+```{r}
+gwl_2014_18 <- gwl_2014_18 %>%
+        drop_na() %>%
+        rename(name = station_name,
+               latitude = lattitude,
+               agency = agency_name,
+               state = state_name,
+               district = district_name,
+               tahsil = tehsil_name,
+               data_time = data_acquisition_time) %>%
+        mutate(data_time = as.POSIXct(data_time, format = "%d-%b-%Y %H:%M"))
+glimpse(gwl_2014_18)
+```
+`unit_code` is confirmed to have the value 'm' in all rows, implying all measurements are made with metres as the unit.
+It is not expected that this changes with 2014-28. `concat` also does not hold any special information, so the two
+columns can be dropped in the combined dataset.
+We will also drop the `datatype_code` column in the combined dataset, as well as drop the `block_name` column in 2014-18.
 
+```{r}
+combined <- combined %>%
+        select(-unit_code, -concat, -datatype_code)
 
+gwl_2014_18 <- gwl_2014_18 %>%
+        select(-block_name)
 
-### Possible Grouping Strategies
-In case a station's observations are of interest, their observations can be filtered by either of the following
-primary keys:
-- (latitude, longitude)
-- (name, district, state)
-- (station_code)
+combined <- bind_rows(combined, gwl_2014_18) # success!
+write_feather(combined, "data/combined/gwl.feather")
+```
+Now, we can use our GWL data!!...not quite. This file only solves the data engineering problem at the schema level.
+Invalid values have not been dealt with, and handling these are beyond the capabilities of standard cleaning procedures.
+In either case, now is a good time to write down our **data engineering assumptions** in case we wish to revisit the
+process again.
 
-If I had to choose, I would prefer matching on (latitude, longitude) since it is central to our
-calculations. Their biggest issue is floating point errors in comparisons, however.
-
+## Data Engineering Assumptions Made So Far (29/9)
+- NAs can be safely ignored (gwl_2018_23_telemetric, gwl_2014_18)
+- Coerced NAs can be safely ignored (gwl_2018_23_manual)
+- Coordinates precision can be worked with (gwl_2018_23_manual)
+- `unit_code` assumption: gwl_2014_18's `data_value` column can be understood to be in metres
+- `concat` is a meaningless column and will not affect downstream analysis (it's just `station_code` with a hash?)
+- `datatype_code` and `block_name`(gwl_2014_18) can be safely dropped without affecting downstream analysis
