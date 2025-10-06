@@ -1,0 +1,174 @@
+---
+title: "Examining The Combined GWL Dataset"
+output: pdf_document
+---
+
+For instructions on how to get to this point, refer to `eda/combine_all_datasets.rmd`.
+```{r}
+library(feather)
+library(tibble)
+
+gwl <- read_feather("data/combined/gwl.feather")
+glimpse(gwl)
+```
+Always handy to keep in mind the schema of the data.
+Moving onto summary statistics.
+```{r}
+library(dplyr)
+
+summary(select(gwl, latitude, longitude, data_time, data_value))
+```
+## `data_value`
+This is the prediction target. The following need to be studied:
+- analysis of observations with data_value = 0, it's no longer the realm of groundwater!
+- confirmation whether positive values should be understood as abs(depth)
+- what extent of readings should be considered as meaningful
+- default values chosen by agencies to report _something_ instead of nothing (0/1/etc.)
+
+To propose a query-aware filter, we have chosen (-200, -0.1) as the interval in which meaningful GWLs lie.
+The filter will be applied after converting each value to -abs(value).
+```{r}
+# another possibility is using -160 as the bound
+gwl_data_value_filtered <- gwl %>%
+        mutate(data_value = -abs(data_value)) %>%
+        filter((data_value > -200) & (data_value < -0.1))
+
+remove(gwl) # required if computing power is limited
+summary(gwl_data_value_filtered$data_value)
+
+# gwl_ones <- gwl %>%
+#   mutate(data_value = -abs(data_value)) %>%
+#   filter(data_value == -1)
+```
+- (-10m, -0.1m) filter -> 11,997,074 observations
+- (-15m, -0.1m) filter -> 14,675,859 observations
+- (-200m, -0.1m) filter -> 22,018,553 observations
+- 169,332 observations report 1m as the depth
+
+## `latitude` and `longitude`
+One can apply a 'spatial filter' that removes observations whose coordinates do not fall within India.
+The **shapefile quality** is essential to this process.
+```{r}
+library(ggplot2)
+library(maps)
+
+india_map <- map_data("world") %>%
+  filter(region == "India")
+
+roi <- ggplot() +
+        geom_polygon(data = india_map,
+                     aes(x = long, y = lat, group = group),
+                     color = "black", alpha = 0, size = 0.1) +
+        geom_point(data = gwl_data_value_filtered,
+                   aes(x = longitude, y = latitude),
+                   size = 0.15)
+
+ggsave("plots/combined/roi.png", plot = roi, dpi = 150)
+```
+- Possible source of error: swapped lat/long coordinates?
+Hence, we need a good shapefile to retain relevant values.
+The current shapefile has been sourced from..............
+```{r}
+library(sf)
+gwl_sf <- st_as_sf(gwl_data_value_filtered,
+                   coords = c("longitude", "latitude"),
+                   crs = 4326) # WGS84
+india_region <- st_read("data/shp/IND_adm/IND_adm0.shp")
+
+# the filter removed...~0.003% of observations!
+# The number of observations removed doesn't quite justify the time the spatial filter takes
+gwl_sf_region_filtered <- gwl_sf %>%
+        filter(st_within(geometry, india_region, sparse = FALSE))
+
+# 1749 init, still running as of 1910. This is much more painful than 11 million observations
+# completed 1910! It only took 1h 10m!!
+```
+
+## Balanced Panels
+We will now try and manufacture the biggest balanced panel we can make from our GWL data,
+which by this point only contains relevant coordinates and data values.
+```{r}
+library(lubridate)
+
+# How many unique (lat, long, t) tuples do we have?
+regular_df <- gwl_sf_region_filtered %>%
+  mutate(
+    longitude = st_coordinates(.)[,1],
+    latitude = st_coordinates(.)[,2]
+  ) %>%
+  st_drop_geometry()
+
+# I am saving regular_df as a sort of cache
+# so that I don't have to engage in the EXTREMELY SLOW spatial filter operation
+# write_feather(regular_df, "data/combined/gwl_post_filters.feather")
+# regular_df <- read_feather("data/combined/gwl_post_filters.feather")
+
+# time values rounded to the nearest month, and also get count made for each (long, lat, t)
+unique_points <- regular_df %>%
+  mutate(data_time = round_date(data_time, unit = "month")) %>%
+  group_by(longitude, latitude, data_time) %>%
+  summarise(count = n(),
+            avg_gwl = mean(data_value),
+            cv_gwl = sd(data_value)/mean(data_value)
+  )
+```
+
+### Coefficient of Variation
+We have rounded each timestamp to the nearest month.
+Additionally, we have aggregated the observations made at each st-location
+by taking their average. The validity of this operation depends on the
+values of the CVs for each st-location.
+```{r}
+library(ggplot2)
+
+# suspect that NAs are introduced by groups having only one observation
+# sd() returns NA for only one observation
+unique_points <- unique_points %>%
+        mutate(cv_gwl = if_else(is.na(cv_gwl), 0, cv_gwl))
+
+plot_cv <- ggplot(unique_points, aes(x = seq_along(cv_gwl), y = cv_gwl)) +
+        labs(y = "Coefficient of Variation", x = "Index", title = "Coefficient of Variation in Observations across Spatio-temporal Locations") +
+        geom_point(size = 0.5)
+ggsave("plots/combined/cv_plot.png", plot = plot_cv, dpi = 150)
+
+summary(unique_points$cv_gwl)
+count_cv_less_than_1 <- nrow(filter(unique_points, cv_gwl > -1))
+(nrow(unique_points) - count_cv_less_than_1)
+```
+99.67% of st-locations have a CV value of less than 1. Applying this filter
+will result in the loss of 3614 st-locations.
+Conclude what you want to do with this information.
+
+### How Sparse is the Time Axis?
+Some metric of completeness is required.
+```{r}
+unique_locations <- unique_points %>%
+        group_by(latitude, longitude) %>%
+        summarise(n_obs = n())
+
+summary(unique_locations$n_obs)
+```
+Evidently, we have a VERY sparse t-axis. 10 years of data and 12 months
+means that in an ideal scenario, we would have 120 observations from each unique
+spatial location. The median number of observations is...11!
+
+```{r}
+observations_per_t <- unique_points %>%
+        group_by(data_time) %>%
+        summarise(count = n())
+
+summary(observations_per_t$count)
+```
+
+Let's get ourselves a plot for the same.
+```{r}
+ggplot(observations_per_t, aes(y = count, x = data_time)) +
+        geom_col() +
+        labs(y = "No. of Observations", x = "Timestamp")
+```
+How tf are we supposed to have ANY kind of time series BS with this??
+
+## Data Engineering Assumptions Made So Far (2/10)
+- the India map in the shapefile is a suitable filter for our data
+- rounding to the nearest month is valid (needs backing of coefficient of variation)
+- we can continue an analysis without a balanced panel (o rly?)

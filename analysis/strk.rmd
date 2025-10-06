@@ -1,0 +1,65 @@
+---
+title: "Spatio-Temporal Residual Kriging on GWL Dataset"
+output: pdf_document
+---
+
+The following happens post the events of `eda/explore_combined.rmd`. The data engineering step is over,
+and now analysis will follow.
+```{r}
+library(feather)
+
+gwl <- read_feather("data/combined/gwl_months.feather")
+```
+
+## Trend Model
+For now, we do the most braindead simple regression ever.
+```{r}
+gwl <- gwl %>%
+  rename(x = longitude, y = latitude, time = data_time) %>%
+  mutate(time = as.numeric(time),
+         long_time = x * time,
+         lat_time = y * time,
+         lat_long = x * y)
+
+# replace trend model with something smarter later PLEASE
+trend_model <- lm(avg_gwl ~ y + x + time + lat_time + long_time + lat_long,
+                  data = gwl)
+summary(trend_model) # R^2 = 0.02049, stderr = 2.522, df = 77965
+```
+
+## Residuals and Variograms
+And to do something smart with them.
+```{r}
+library(sf)
+library(gstat)
+library(sp)
+library(spacetime)
+library(xts)
+
+gwl$residuals <- residuals(trend_model)
+
+# TODO: remove redundant conversion to sf object
+# creating STIDF object
+gwl_sf <- st_as_sf(gwl,
+                   coords = c("x", "y"),
+                   crs = 4326) # WGS 1984
+coords <- st_coordinates(gwl_sf)
+gwl_sf$x <- coords[, 1]
+gwl_sf$y <- coords[, 2]
+gwl_sf$time <- as.POSIXct(gwl_sf$time)
+gwl_sf <- gwl_sf %>%
+  arrange(time)
+gwl_sp <- as(gwl_sf, "Spatial")
+gwl_stdata <- STIDF(sp = as(gwl_sp, "SpatialPoints"),
+                    time = gwl_sf$time,
+                    data = st_drop_geometry(gwl_sf))
+
+
+st_vgm <- variogramST(residuals ~ 1,
+                      data = gwl_stdata,
+                      tlags = 0:11,
+                      cutoff = 1000,
+                      tunit = "months"
+)
+
+```
