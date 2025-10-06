@@ -93,8 +93,6 @@ gwl_2018_23_telemetric <- read_feather("data/combined/gwl_2018_23_telemetric.fea
 na_count <- gwl_2018_23_telemetric %>%
   summarise_all(~sum(is.na(.)))
 glimpse(na_count)
-
-
 ```
 Dimensions = 17,088,404 x 14
 This is where our luck runs out, with 127k observations missing (latitude, longitude) readings, as well as some missing
@@ -175,94 +173,11 @@ gwl_2014_18 <- gwl_2014_18 %>%
 
 combined <- bind_rows(combined, gwl_2014_18) # success!
 write_feather(combined, "data/combined/gwl.feather")
-
-glimpse(gwl_2018_23_telemetric)
 ```
 Now, we can use our GWL data!!...not quite. This file only solves the data engineering problem at the schema level.
-Invalid values have not been fully dealt with, and handling these are beyond the capabilities of standard cleaning procedures.
+Invalid values have not been dealt with, and handling these are beyond the capabilities of standard cleaning procedures.
 In either case, now is a good time to write down our **data engineering assumptions** in case we wish to revisit the
 process again.
-
-```{r}
-library(dplyr)
-
-# restart here
-gwl_2014_18 <- read_feather("data/combined/gwl_2014_18.feather")
-gwl_2018_23_telemetric <- read_feather("data/combined/gwl_2018_23_telemetric.feather")
-gwl_2018_23_manual <- read_feather("data/combined/gwl_2018_23_manual.feather")
-
-gwl_2014_18 <- gwl_2014_18 %>%
-  drop_na() %>%
-  rename(name = station_name,
-         latitude = lattitude,
-         agency = agency_name,
-         state = state_name,
-         district = district_name,
-         tahsil = tehsil_name,
-         data_time = data_acquisition_time) %>%
-  mutate(data_time = as.POSIXct(data_time, format = "%d-%b-%Y %H:%M"))
-
-gwl_2018_23_manual <- gwl_2018_23_manual %>%
-  mutate(latitude = as.double(latitude),
-         longitude = as.double(longitude)) %>%
-  drop_na()
-# restart ends here
-
-
-gwl_2014_18 <- gwl_2014_18 %>%
-  distinct(latitude, longitude)
-gwl_2018_23_telemetric <- gwl_2018_23_telemetric %>%
-  distinct(latitude, longitude)
-gwl_2018_23_manual <- gwl_2018_23_manual %>%
-  distinct(latitude, longitude)
-
-common <- inner_join(gwl_2018_23_telemetric, gwl_2014_18, by = c("latitude", "longitude"))
-
-get_decimal_places <- function(x) {
-  if (is.numeric(x)) {
-    # Convert to character, handling potential scientific notation
-    s <- format(x, scientific = FALSE)
-
-    # Split the string at the decimal point
-    parts <- strsplit(s, "\\.")[[1]]
-
-    # If there's no decimal part, return 0
-    if (length(parts) < 2) {
-      return(0)
-    } else {
-      # Count the number of characters in the decimal part
-      return(nchar(parts[2]))
-    }
-  } else {
-    stop("Input must be numeric.")
-  }
-}
-
-
-
-significant_digits <- gwl_2018_23_telemetric %>%
-        mutate(latitude = as.integer(get_decimal_places(latitude)),
-               longitude = as.integer(get_decimal_places(longitude))) %>%
-        group_by(latitude, longitude) %>%
-        summarise(count = n()) %>%
-        arrange(count)
-
-significant_digits_14 <- gwl_2014_18 %>%
-  mutate(latitude = as.integer(get_decimal_places(latitude)),
-         longitude = as.integer(get_decimal_places(longitude))) %>%
-  group_by(latitude, longitude) %>%
-  summarise(count = n()) %>%
-        arrange(count)
-
-
-significant_digits_18_manual <- gwl_2018_23_manual %>%
-  mutate(latitude = as.integer(get_decimal_places(latitude)),
-         longitude = as.integer(get_decimal_places(longitude))) %>%
-  group_by(latitude, longitude) %>%
-  summarise(count = n()) %>%
-  arrange(count)
-```
-
 
 ## Data Engineering Assumptions Made So Far (29/9)
 - NAs can be safely ignored (gwl_2018_23_telemetric, gwl_2014_18)
