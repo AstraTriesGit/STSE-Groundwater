@@ -1,4 +1,6 @@
-# bc saara GWL lao teri mkc
+library(feather)
+library(dplyr)
+
 gwl <- read_feather("data/combined/gwl.feather")
 # 73,816 unique station_codes, 97,591 unique lat-long pairs.
 # FIX THIS NOW.
@@ -131,14 +133,6 @@ locations_18_22 <- temp_18_22 %>%
   distinct(latitude, longitude)
 
 FUCKED <- inner_join(locations_14_17, locations_18_22, by = c("latitude", "longitude"))
-
-
-
-
-
-
-
-
 
 ggplot() +
   geom_point(data = locations_14_17, aes(x = longitude, y = latitude, color = "2014-2017"), size = 0.5) +

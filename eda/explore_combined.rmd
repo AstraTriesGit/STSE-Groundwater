@@ -43,7 +43,6 @@ summary(gwl_data_value_filtered$data_value)
 - (-10m, -0.1m) filter -> 11,997,074 observations
 - (-15m, -0.1m) filter -> 14,675,859 observations
 - (-200m, -0.1m) filter -> 22,018,553 observations
-- 169,332 observations report 1m as the depth
 
 ## `latitude` and `longitude`
 One can apply a 'spatial filter' that removes observations whose coordinates do not fall within India.
@@ -86,7 +85,7 @@ gwl_sf_region_filtered <- gwl_sf %>%
 
 ## Balanced Panels
 We will now try and manufacture the biggest balanced panel we can make from our GWL data,
-which by this point only contains relevant coordinates and data values.
+which by this point only contains valid coordinates and data values.
 ```{r}
 library(lubridate)
 
@@ -101,7 +100,7 @@ regular_df <- gwl_sf_region_filtered %>%
 # I am saving regular_df as a sort of cache
 # so that I don't have to engage in the EXTREMELY SLOW spatial filter operation
 # write_feather(regular_df, "data/combined/gwl_post_filters.feather")
-# regular_df <- read_feather("data/combined/gwl_post_filters.feather")
+regular_df <- read_feather("data/combined/gwl_post_filters.feather")
 
 # time values rounded to the nearest month, and also get count made for each (long, lat, t)
 unique_points <- regular_df %>%
@@ -164,9 +163,132 @@ Let's get ourselves a plot for the same.
 ```{r}
 ggplot(observations_per_t, aes(y = count, x = data_time)) +
         geom_col() +
+        geom_text(aes(label = round(count/1e3)), vjust = -0.5) +
         labs(y = "No. of Observations", x = "Timestamp")
+
+ggsave("plots/combined/observations_per_t.png", dpi = 150)
 ```
 How tf are we supposed to have ANY kind of time series BS with this??
+
+
+```{r}
+observations_per_month <- observations_per_t %>%
+        mutate(month_ = month(data_time)) %>%
+        group_by(month_) %>%
+        summarise(count_ = sum(count),
+                  mean_count = count_ / 10,
+                  median_count = median(count),
+                  sd_count = sd(count),
+                  cv_count = sd_count / median_count
+        ) %>%
+        arrange(mean_count)
+
+glimpse(observations_per_month)
+```
+
+Time to pray to god.
+```{r}
+gwl_may <- unique_points %>%
+        filter(month(data_time) == 5)
+
+unique_locations_in_may <- gwl_may %>%
+        group_by(longitude, latitude) %>%
+        summarise(count = n())
+
+may_observations_per_year <- gwl_may %>%
+        mutate(year_ = year(data_time)) %>%
+        group_by(year_) %>%
+        summarise(count = n())
+
+may_2014 <- gwl_may %>%
+        filter(year(data_time) == 2014)
+
+may_2015 <- gwl_may %>%
+        filter(year(data_time) == 2015)
+
+common <- inner_join(common,
+                     gwl_may %>%
+                             filter(year(data_time) == 2018),
+                     by = c("latitude", "longitude"))
+
+summary(unique_locations_in_may$count)
+```
+There are no gods in the world of econometrics.
+
+### Balanced Panels: The station_code Attempt
+If (latitude, longitude) pairs are going to be the source of conflict, might as well work
+with the `station_code` fields in the original data. Why?-Why not?
+```{r}
+unique_stcodes <- regular_df %>%
+  distinct(station_code)
+# 73k unique station_codes! In comparison to 97k lat-long pairs! A step in the right direction.
+# 1.1 mil unique (station_code, t) st-locations. In comparison to 1 million (lat, long, t) st-locations
+
+unique_points_stcodes <- regular_df %>%
+  mutate(data_time = round_date(data_time, unit = "month")) %>%
+  group_by(station_code, data_time) %>%
+  summarise(count = n(),
+            avg_gwl = mean(data_value),
+            cv_gwl = sd(data_value)/mean(data_value))
+
+summary(select(unique_points_stcodes, count, cv_gwl))
+```
+
+It's already better than the lat-long pairs! Should we continue creating our panels with
+our new primary key?
+```{r}
+gwl_may <- unique_points_stcodes %>%
+  filter(month(data_time) == 5)
+
+unique_locations_in_may <- gwl_may %>%
+  group_by(station_code) %>%
+  summarise(count = n())
+
+may_observations_per_year <- gwl_may %>%
+  mutate(year_ = year(data_time)) %>%
+  group_by(year_) %>%
+  summarise(count = n())
+
+may_2014 <- gwl_may %>%
+  filter(year(data_time) == 2018)
+
+may_2015 <- gwl_may %>%
+  filter(year(data_time) == 2019)
+
+common <- inner_join(may_2015, may_2014, by = "station_code")
+common <- inner_join(common,
+                     gwl_may %>%
+                       filter(year(data_time) == 2022),
+                     by = "station_code")
+
+```
+
+This shit is so ass. Something changed up between 2014-18's and 2018-2023's indexing.
+
+
+
+
+
+```{r}
+# My honest reaction when grouping creates the same amount of rows as original df.
+# Should I skip calculating those statistics? They won't really add much information.
+# On second thought I think I might just let it run.
+# Operation started at 1232, how long will it take? No one knows, not even the computer!
+unique_locations_stcode <- regular_df %>%
+  group_by(station_code, data_time) %>%
+  summarise(count = n(),
+            avg_gwl = mean(data_value),
+            cv_gwl = sd(data_value)/mean(data_value)
+  )
+
+# checkpoint 2: unique_locations_stcode. It takes 30 mins to do aforementioned group_by.
+# write_feather(unique_locations_stcode, "data/combined/gwl_by_stcode.feather")
+# unique_locations_stcode <- read_feather("data/combined/gwl_by_stcode.feather")
+```
+A consideration: the number of unique `station_code` fields is less than that number of unique lat-long
+pairs. Using the pigeonhole principle, we conclude that some station_codes map to more than one
+lat-long pair. Hence, a function mapping station_codes to lat-long pairs is not a bijection. And that
+is a problem. How do we plan our database joins for such a case?
 
 ## Data Engineering Assumptions Made So Far (2/10)
 - the India map in the shapefile is a suitable filter for our data

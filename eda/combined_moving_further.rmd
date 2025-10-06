@@ -1,0 +1,159 @@
+---
+title: "Fixing Logical Errors in the GWL Dataset"
+output: pdf_document
+---
+```{r}
+library(feather)
+library(dplyr)
+
+gwl <- read_feather("data/combined/gwl_post_filters.feather")
+```
+
+
+# Studies Of The Station Codes and Coordinates Mapping
+73,332 unique station_codes, 97,064 unique lat-long pairs. A function mapping a station code to
+a pair of coordinates is not going to be a bijection.
+```{r}
+# 22,774 station_codes have more than one pair
+# max 3 pairs of coords, mean is 2.219
+coord_variation <- gwl %>%
+  group_by(station_code) %>%
+  summarise(
+    n_unique_coords = n_distinct(latitude, longitude),
+    lat_range = max(latitude) - min(latitude),
+    lon_range = max(longitude) - min(longitude)
+  ) %>%
+  filter(n_unique_coords > 1)
+
+summary(select(coord_variation, -station_code))
+```
+The mean and the third quartile are rather apart for both the latitude and longitude variation.
+Let us plot the above columns.
+```{r}
+# in both cases, only 1 point is way above everyone else!
+plot(coord_variation$lat_range)
+plot(coord_variation$lon_range)
+```
+
+We now try to find the stations for which we observe the large range. The rest can be dismissed as
+coordinate reporting errors in GPS, etc. (indeed it turns out that the remaining differences are of
+1e-09 order.)
+```{r}
+# both output the same station_code!
+very_long <- coord_variation %>%
+        filter(lon_range > 0.01)
+very_lat <- coord_variation %>%
+        filter(lat_range > 0.01)
+glimpse(very_lat)
+```
+
+There are two unique coordinate pairs for this location.
+```{r}
+wack_coords <- gwl %>%
+        filter(station_code == "110501") %>%
+        distinct(latitude, longitude)
+glimpse(wack_coords)
+```
+
+(13.01, 76.51) and (12.86, 76.45) for the same station_code! Are they simply different locations?
+```{r}
+wack_names <- gwl %>%
+        filter(station_code == "110501") %>%
+        distinct(name)
+glimpse(wack_names)
+```
+
+Yes, indeed they are. I will create a new station_code for Devarahalli_1.
+```{r}
+gwl_new_stcode <- gwl %>%
+        mutate(station_code = if_else(name == "Devarahalli_1",
+                                      "110501x", station_code))
+
+coord_variation <- gwl_new_stcode %>%
+  group_by(station_code) %>%
+  summarise(
+    n_unique_coords = n_distinct(latitude, longitude),
+    lat_range = max(latitude) - min(latitude),
+    lon_range = max(longitude) - min(longitude)
+  ) %>%
+  filter(n_unique_coords > 1)
+
+summary(select(coord_variation, -station_code))
+```
+Now that the maximum coordinate range is of the order -09, we will now average over the multiple coordinate
+pairs and update our dataset.
+```{r}
+# 73,333 unique station_codes now (+1 for Devarahalli_1)
+coords_unique <- gwl_new_stcode %>%
+  group_by(station_code) %>%
+  summarise(
+    latitude = mean(latitude),
+    longitude = mean(longitude)
+  )
+
+# gotta go fast
+lat_lookup <- setNames(coords_unique$latitude, coords_unique$station_code)
+lon_lookup <- setNames(coords_unique$longitude, coords_unique$station_code)
+
+gwl_new_stcode$latitude <- lat_lookup[gwl_new_stcode$station_code]
+gwl_new_stcode$longitude <- lon_lookup[gwl_new_stcode$station_code]
+
+nrow(distinct(gwl_new_stcode, latitude, longitude))
+
+# write_feather(gwl_new_stcode, "data/combined/gwl_fixed_coords.feather")
+```
+
+We now have 73,333 unique station_codes and...71354 unique coordinate pairs.
+There is still no bijection between station_code and (lat, long). Checking out a few of those
+locations made me find stations with the same name, but with some annotation. While relevant
+for administrative purposes, it does not affect our analysis. The 20k decrease in lat-long pairs is
+expected to help, though.
+
+# Another Go At Making Balanced Panels
+By previous work, we have found out that the 2014-18 dataset has the most observations in
+January, May, September and November (and next to no observations in the other months).
+We will use the aforementioned months to create the largest possible panel.
+```{r}
+library(lubridate)
+gwl <- read_feather("data/combined/gwl_fixed_coords.feather")
+st_locations <- gwl %>%
+        mutate(data_time = round_date(data_time, unit = "month")) %>%
+        group_by(latitude, longitude, data_time) %>%
+        summarise(avg_gwl = mean(data_value),
+                  cv_gwl = sd(data_value) / mean(data_value))
+
+
+panel_builder <- function (year_range, month) {
+  years <- year_range
+  in_month_all_years <- st_locations %>%
+          filter(year(data_time) %in% years & month(data_time) == month)
+
+  # Find locations that appear in ALL years
+  common_locations <- in_month_all_years %>%
+          distinct(latitude, longitude, year(data_time)) %>%
+          count(latitude, longitude) %>%
+          filter(n == length(years)) %>%
+          select(latitude, longitude)
+
+  # Filter to only common locations
+  panel <- in_month_all_years %>%
+          semi_join(common_locations, by = c("latitude", "longitude"))
+
+  return (panel)
+}
+```
+
+```{r}
+# 30k observations
+may_14_17 <- panel_builder(2014:2017, 5)
+# 28k observations
+may_18_22 <- panel_builder(2018:2022, 5)
+# ZERO OBSERVATIONS
+may_14_22 <- panel_builder(2014:2022, 5)
+
+# 20k obsevations (2294 stations)
+sep_14_22 <- panel_builder(2014:2022, 9)
+
+write_feather(sep_14_22, "data/combined/sep_panel.feather")
+```
+

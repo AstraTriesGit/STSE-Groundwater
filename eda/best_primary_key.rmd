@@ -1,0 +1,145 @@
+---
+title: "Revisiting the Case of the Best Primary Key in the GWL Data"
+output: pdf_document
+---
+
+We have come here after our sojourn in `explore_combined.rmd`. A serious dead end has been hit
+in the process of creating a balanced panel for our analysis. In particular, primary key
+strategies are not compatible across the dataset.
+```{r}
+library(feather)
+library(dplyr)
+library(lubridate)
+library(tidyr)
+
+gwl_2014_18 <- read_feather("data/combined/gwl_2014_18.feather")
+gwl_2018_23_telemetric <- read_feather("data/combined/gwl_2018_23_telemetric.feather")
+
+# to get comparable schemas, as happens in schema-level data engineering
+gwl_2014_18 <- gwl_2014_18 %>%
+  drop_na() %>%
+  rename(name = station_name,
+         latitude = lattitude,
+         agency = agency_name,
+         state = state_name,
+         district = district_name,
+         tahsil = tehsil_name,
+         data_time = data_acquisition_time) %>%
+  mutate(data_time = as.POSIXct(data_time, format = "%d-%b-%Y %H:%M"))
+gwl_2018_23_telemetric <- drop_na(gwl_2018_23_telemetric)
+```
+
+# Investigations
+From previous work, it has been noted that you can create a sizeable balanced panel of observations
+by collecting observations made in May of each year.
+```{r}
+create_monthly_panel <- function (table, mth, n_obs) {
+  # aggregated for the month
+  monthly_obs <- table %>%
+    mutate(data_time = round_date(data_time, unit = "month")) %>%
+    filter(month(data_time) == mth) %>%
+    group_by(station_code, data_time) %>%
+    summarise(avg_gwl = mean(data_value),
+              cv_gwl = sd(data_value) / mean(data_value))
+
+  panel_stations <- monthly_obs %>%
+    group_by(station_code) %>%
+    summarise(count = n()) %>%
+    filter(count == n_obs) %>%
+    select(-count)
+
+  panel <- monthly_obs %>%
+    inner_join(panel_stations, by = "station_code")
+
+  return (panel)
+}
+
+table <- gwl_2014_18
+monthly_obs <- table %>%
+  mutate(data_time = round_date(data_time, unit = "month")) %>%
+  filter(month(data_time) == mth) %>%
+  group_by(station_code, data_time) %>%
+  summarise(avg_gwl = mean(data_value),
+            cv_gwl = sd(data_value) / mean(data_value)) %>%
+  ungroup()
+
+mth <- 5
+n_obs <- 5
+
+panel_stations <- monthly_obs %>%
+  group_by(station_code) %>%
+  summarise(count = n()) %>%
+  group_by(count) %>%
+  summarise(outta5 = n())
+
+readline()
+```
+
+
+
+
+
+
+```{r}
+create_monthly_panel <- function (table, mth, n_obs) {
+  # aggregated for the month
+  monthly_obs <- table %>%
+    mutate(data_time = round_date(data_time, unit = "month")) %>%
+    filter(month(data_time) == mth) %>%
+    group_by(station_code, data_time) %>%
+    summarise(avg_gwl = mean(data_value),
+              cv_gwl = sd(data_value) / mean(data_value))
+
+  panel_stations <- monthly_obs %>%
+    group_by(station_code) %>%
+    summarise(count = n()) %>%
+    filter(count == n_obs) %>%
+    select(-count)
+
+  panel <- monthly_obs %>%
+    inner_join(panel_stations, by = "station_code")
+
+  return (panel)
+}
+
+panel_2014_18 <- create_monthly_panel(gwl_2014_18, 5, 5)
+
+# panels made with station_code as the primary key, 6699 stations fulfill the criteria
+gwl_may_2014_18 <- gwl_2014_18 %>%
+  filter(month(data_time) == 5)
+
+panel_stations_2014_18 <- gwl_may_2014_18 %>%
+  group_by(station_code) %>%
+  summarise(count = n()) %>%
+  filter(count == 5) %>%
+  select(-count)
+
+panel_2014_18 <- gwl_may_2014_18 %>%
+        group_by(station_code, data_time) %>%
+        summarise(avg_gwl = mean(data_value),
+                  cv_gwl = sd(data_value) / mean(data_value)) %>%
+        inner_join(panel_stations_2014_18, by = "station_code")
+
+
+gwl_may_2018_23 <- gwl_2018_23_telemetric %>%
+  mutate(data_time = round_date(data_time, unit = "month")) %>%
+  filter(month(data_time) == 5) %>%
+  group_by(station_code, data_time) %>%
+  summarise(avg_gwl = mean(data_value),
+            cv_gwl = sd(data_value) / mean(data_value))
+
+
+panel_stations_2018_23 <- gwl_may_2018_23 %>%
+  group_by(station_code) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+panel_2018_23 <- gwl_may_2014_18 %>%
+  group_by(station_code, data_time) %>%
+  summarise(avg_gwl = mean(data_value),
+            cv_gwl = sd(data_value) / mean(data_value)) %>%
+  inner_join(panel_stations_2014_18, by = "station_code")
+
+
+
+```
