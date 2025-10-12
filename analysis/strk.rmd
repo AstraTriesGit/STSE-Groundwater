@@ -32,14 +32,47 @@ And to do something smart with them.
 ```{r}
 library(gstat)
 library(spacetime)
+library(sp)
+library(xts)
 
+gwl$residuals <- residuals(trend_model)
+gwl$time <- as.POSIXct(gwl$time)
 
+gwl_sp <- gwl
+coordinates(gwl_sp) <- ~x+y
+proj4string(gwl_sp) <- CRS("+proj=longlat +datum=WGS84")
 
-st_vgm <- variogramST(residuals ~ 1,
-                      data = gwl_stdata,
-                      tlags = 0:11,
-                      cutoff = 1000,
-                      tunit = "months"
+coords <- gwl %>%
+  distinct(x, y)
+coords <- cbind(coords$x, coords$y)
+sp_obj <- SpatialPoints(coords)
+coordinates(sp_obj) <- ~x+y
+proj4string(sp_obj) <- CRS("+proj=longlat +datum=WGS84")
+
+time_obj <- sort(unique(gwl_sp@data$time))
+
+# rejoice
+gwl_stfdf <- STFDF(sp = sp_obj,
+                   time = time_obj,
+                   data = gwl_sp@data
 )
+
+summary(gwl_stfdf)
+proj4string(gwl_stfdf) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+gwl_stfdf <- spTransform(gwl_stfdf, CRS("EPSG:7755")) # for pan-India
+```
+
+STFDF created. Now for the residual model.
+```{r}
+st_vgm <- variogramST(formula = residuals~1,
+                    data = gwl_stfdf,
+                    width = 5000,     # 5 km bins
+                    cutoff = 200000,  # 200 km maximum
+                    tlags = 0:8)
+
+plot(st_vgm)
+```
+
+```{r}
 
 ```
