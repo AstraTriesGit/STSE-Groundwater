@@ -334,44 +334,163 @@ CI_CO <- CI_CO %>%
     infertile = if_else(fertilityofsoilintheplot %in% c("Poor", "Very poor"), 1, NA_real_)
   ) %>%
   group_by(vdsyid) %>% mutate(infertile_plotcount = sum(infertile[tag_plot == 1], na.rm = TRUE)) %>% ungroup() %>%
-    mutate(infertile_plotcount = if_else(fertility_ih == 0, NA_real_, infertile_plotcount)) %>%
-    select(-infertile) %>%
-    # Erosivity_HH Level:
-    mutate(
-      erosive_i = if_else(
-        !is.na(soildegradation) & soildegradation != "" |
-          !is.na(soildegradationothers) & soildegradationothers != "",
-        1, NA_real_
-      )
-    ) %>%
-    group_by(vdsid_hhid) %>%
-    mutate(erosive_ih = sum(erosive_i, na.rm = TRUE)) %>%
-    ungroup() %>%
-    #
-    group_by(vdsyid) %>%
-    mutate(erosive_i2 = sum(erosive_i, na.rm = TRUE)) %>%
-    ungroup() %>%
-    #
-    mutate(
-      erosive = if_else(
-        soildegradation %in% c("Soil erosion", "Water logging") |
-          soildegradationothers == "SOIL EROSI.&NUTRIENT",
-        1, NA_real_
-      )
-    ) %>%
-    group_by(vdsyid) %>%
-    mutate(erosive_plotcount = sum(erosive[tag_plot == 1], na.rm = TRUE)) %>%
-    ungroup() %>%
-    mutate(erosive_plotcount = if_else(erosive_ih == 0, NA_real_, erosive_plotcount))
+  mutate(infertile_plotcount = if_else(fertility_ih == 0, NA_real_, infertile_plotcount)) %>%
+  select(-infertile) %>%
+  # Erosivity_HH Level:
+  mutate(
+    erosive_i = if_else(
+      !is.na(soildegradation) & soildegradation != "" |
+        !is.na(soildegradationothers) & soildegradationothers != "",
+      1, NA_real_
+    )
+  ) %>%
+  group_by(vdsid_hhid) %>%
+  mutate(erosive_ih = sum(erosive_i, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(vdsyid) %>%
+  mutate(erosive_i2 = sum(erosive_i, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(
+    erosive = if_else(
+      soildegradation %in% c("Soil erosion", "Water logging") |
+        soildegradationothers == "SOIL EROSI.&NUTRIENT",
+      1, NA_real_
+    )
+  ) %>%
+  group_by(vdsyid) %>%
+  mutate(erosive_plotcount = sum(erosive[tag_plot == 1], na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(erosive_plotcount = if_else(erosive_ih == 0, NA_real_, erosive_plotcount)) %>%
+  mutate(
+    depth_i = if_else(
+      !is.na(depthofsoilintheplot) & depthofsoilintheplot != "",
+      1, NA_real_
+    )
+  ) %>%
+  group_by(vdsid_hhid) %>%
+  mutate(depth_ih = sum(depth_i)) %>%
+  ungroup() %>%
+  # Depth of Soil in The Plot:
+  mutate(depth_copy = depthofsoilintheplot,
+         depth_copy = if_else(depth_copy %in% c( "Deep (1.1-1.5 mt)", "Medium (0.6-1 mt)", "Shallow (<0.5 mt)", "Very deep (>1.5 mt)"), NA_character_, depth_copy),
+         depth_copy = 0.01* as.numeric(depth_copy),
+         shallow = if_else(depthofsoilintheplot == "Shallow (<0.5 mt)" | (depth_copy <=0.5 & !is.na(depth_copy)), 1, NA_real_),
+         medium = if_else(depthofsoilintheplot == "Medium (0.6-1 mt)" | (depth_copy > 0.5 & depth_copy <=1 & !is.na(depth_copy)), 1 ,NA_real_),
+         deep = if_else(depthofsoilintheplot == "Deep (1.1-1.5 mt)" | (depth_copy > 1 & depth_copy <=1.5 & !is.na(depth_copy)), 1 ,NA_real_),
+         verydeep = if_else(depthofsoilintheplot == "Very deep (>1.5 mt)" | (depth_copy > 1.5 & !is.na(depth_copy)), 1, NA_real_)
+  ) %>%
+  group_by(vdsyid) %>%
+  mutate(deepsoil_plotcount = sum(deep[tag_plot == 1], na.rm = TRUE),
+         vdeepsoil_plotcount = sum(verydeep[tag_plot == 1], na.rm = TRUE),
+         shallowsoil_plotcount = sum(shallow[tag_plot == 1], na.rm = TRUE),
+         mediumsoil_plotcount = sum(medium[tag_plot == 1], na.rm = TRUE)) %>%
+  ungroup() %>%
+  #
+  mutate(deepsoil_plotcount = if_else(depth_ih == 0, NA_real_, deepsoil_plotcount),
+         vdeepsoil_plotcount = if_else(depth_ih == 0, NA_real_, vdeepsoil_plotcount),
+         shallowsoil_plotcount = if_else(depth_ih == 0, NA_real_, shallowsoil_plotcount),
+         mediumsoil_plotcount = if_else(depth_ih == 0, NA_real_, mediumsoil_plotcount)) %>%
+  select(-depth_i, -depth_ih, -depth_copy, -shallow, -medium, -deep, -verydeep) %>%
+  # Slope of the Plot:
+  mutate(
+    slope_i = if_else(
+      !is.na(slopeoftheplot) & slopeoftheplot != "",
+      1, NA_real_
+    )
+  ) %>%
+  group_by(vdsid_hhid) %>%
+  mutate(slope_ih = sum(slope_i, na.rm = TRUE)) %>%
+  ungroup() %>%
+  #
+  mutate(high = if_else(slopeoftheplot == "High slope (>10%)" | slopeoftheplot == "High slope >10%", 1, NA_real_),
+         level = if_else(slopeoftheplot == "Level (0-1%)" | slopeoftheplot == "Leveled 0-1%", 1 ,NA_real_),
+         mid = if_else(slopeoftheplot == "Medium slope (3-10%)" | slopeoftheplot == "Medium slope 3-10%", 1 ,NA_real_),
+         slight = if_else(slopeoftheplot == "Slight slope (1-3%)" | slopeoftheplot == "Slight slope 1-3%", 1, NA_real_)
+  ) %>%
+  group_by(vdsyid) %>%
+  mutate(highslope_plotcount = sum(high[tag_plot == 1], na.rm = TRUE),
+         levelslope_plotcount = sum(level[tag_plot == 1], na.rm = TRUE),
+         midslope_plotcount = sum(mid[tag_plot == 1], na.rm = TRUE),
+         slightslope_plotcount = sum(slight[tag_plot == 1], na.rm = TRUE)) %>%
+  ungroup() %>%
+  #
+  mutate(highslope_plotcount = if_else(slope_ih == 0, NA_real_, highslope_plotcount),
+         levelslope_plotcount = if_else(slope_ih == 0, NA_real_, levelslope_plotcount),
+         midslope_plotcount = if_else(slope_ih == 0, NA_real_, midslope_plotcount),
+         slightslope_plotcount = if_else(slope_ih == 0, NA_real_, slightslope_plotcount)) %>%
+  select(-slope_i, -slope_ih, -high, -level, -mid, -slight)
 
 
-
-
-
-
-
-
-
+CI_CO <- CI_CO %>%
+  mutate(across(c(problemsoil_plotcount, problemsoil_nodeg_plotcount, alkaline_acidic_plotcount,
+                  infertile_plotcount, erosive_plotcount, deepsoil_plotcount,
+                  vdeepsoil_plotcount, shallowsoil_plotcount, mediumsoil_plotcount,
+                  highslope_plotcount, levelslope_plotcount, midslope_plotcount, slightslope_plotcount),
+                ~ as.integer(. > 0),
+                .names = "{.col}_i")) %>%
+  rename(problemsoil_i = problemsoil_plotcount_i,
+         problemsoil_nodeg_i  = problemsoil_nodeg_plotcount_i,
+         alkaline_acidic_i  = alkaline_acidic_plotcount_i,
+         infertile_i = infertile_plotcount_i,
+         erosive_i = erosive_plotcount_i,
+         deepsoil_i  = deepsoil_plotcount_i,
+         vdeepsoil_i = vdeepsoil_plotcount_i,
+         shallowsoil_i = shallowsoil_plotcount_i,
+         mediumsoil_i = mediumsoil_plotcount_i ,
+         highslope_i = highslope_plotcount_i ,
+         levelslope_i = levelslope_plotcount_i ,
+         midslope_i = midslope_plotcount_i ,
+         slightslope_i = slightslope_plotcount_i
+  ) %>%
+  mutate(across(c(problemsoil_plotcount, problemsoil_nodeg_plotcount, alkaline_acidic_plotcount,
+                  infertile_plotcount, erosive_plotcount, deepsoil_plotcount,
+                  vdeepsoil_plotcount, shallowsoil_plotcount, mediumsoil_plotcount,
+                  highslope_plotcount, levelslope_plotcount, midslope_plotcount, slightslope_plotcount),
+                ~ .,
+                .names = "{.col}_c")) %>%
+  rename_with(~ substr(., 1, nchar(.) - 12), ends_with("_plotcount_c")) %>%
+  mutate(across(c(problemsoil, problemsoil_nodeg, alkaline_acidic, infertile,
+                  erosive, deepsoil, vdeepsoil, shallowsoil, mediumsoil, highslope,
+                  levelslope, midslope, slightslope),
+                ~ (. / plotcount)*100,
+                .names = "{.col}_plotshare"
+  )) %>%
+  select(-problemsoil, -problemsoil_nodeg, -alkaline_acidic, -infertile, -erosive,
+         -deepsoil, -vdeepsoil, -shallowsoil, -mediumsoil, -highslope, -levelslope, -midslope, -slightslope) %>%
+  # Land Ownership
+  rename(ownershipstatus_CO = ownershipstatus,
+         ownershipstatusoftheplot_LH = ownershipstatusoftheplot) %>%
+  mutate(landownership = ownershipstatusoftheplot_LH,
+         landownership = case_when(landownership == "" ~ ownershipstatus_CO,
+                                   landownership %in% c("Li", "Leased-in on fixed rent", "Leased-in on crop share" ) ~ "LI",
+                                   landownership %in% c("Leased-out on crop share", "Leased-out on fixed rent") ~ "LO",
+                                   landownership == "Own land" ~ "Owned",
+                                   TRUE ~ ""
+         ),
+         owned = if_else(landownership == "Owned", 1, 0),
+         owned = if_else(landownership == "", NA, owned),
+         ownarea = if_else(owned == 1 & tag_plot == 1, plotcropareainacres, 0)) %>%
+  group_by(vdsyid) %>%
+  mutate(ownedland = sum(ownarea)) %>%
+  ungroup() %>%
+  #
+  mutate(operationalarea = if_else(tag_plot == 1, plotcropareainacres, 0)) %>%
+  group_by(vdsyid) %>%
+  mutate(operationalland = sum(operationalarea)) %>%
+  ungroup() %>%
+  #
+  mutate(o2t_co = ownedland / operationalland,
+         ownarea2 = if_else(owned == 1 & tag_plot == 1, totalareaoftheplot, 0),
+         operationalarea2 = if_else(tag_plot == 1, totalareaoftheplot, 0)) %>%
+  # AREA From LH File
+  group_by(vdsyid) %>%
+  mutate(ownedland2 = sum(ownarea2),
+         operationalland2 = sum(operationalarea2)) %>%
+  ungroup() %>%
+  #
+  mutate(o2t_co2 = ownedland2 / operationalland2) %>%
+  select(-owned, -ownarea, -ownedland, -operationalarea, -operationalland,
+         -ownarea2, -ownedland2, -operationalarea2, -operationalland2)
 
 
 # more than one season procedure
@@ -390,5 +509,91 @@ kharif_rabi_vdsyids <- kharif_vdsyids %>%
 rabi_annual_vdsyids <- rabi_vdsyids %%
   inner_join(annual_vdsyids, by = "vdsyid") %>%
   mutate(season_full = "Rabi+Annual")
+
+CI_CO_merged <- CI_CO %>%
+  left_join(kharif_rabi_vdsyids, by = 'vdsyid') %>%
+  mutate(season = if_else(is.na(season_full), season, season_full)) %>%
+  select(-season_full) %>%
+  left_join(rabi_annual_vdsyids, by = 'vdsyid') %>%
+  mutate(season = if_else(is.na(season_full), season, season_full)) %>%
+  select(-season_full) %>%
+  rename(season_full = season)
+
+CI_CO_merged <- CI_CO_merged %>%
+  group_by(vdsyid) %>%
+  mutate(output_VDSYID = sum(output_VDSPSYID),
+         croparea_VDSYID = sum(croparea_VDSPSYID),
+         yield_VDSYID = mean(yield),
+         dist_h2p_VDSYID = mean(dist_h2p),
+         dist_s2p_VDSYID = mean(dist_s2p),
+         fertilizer_frequency_yearly = sum(fertilizer_frequency),
+         fertilizer_indicator_yearly = mean(fertilizer_indicator),
+         irrigation_frequency_yearly = sum(irrigation_frequency),
+         irrigation_indicator_yearly = mean(irrigation_indicator),
+         motorpa_n = mean(motorpa),
+         nitropa_n = mean(nitropa),
+         phospa_n = mean(phospa),
+         potashpa_n = mean(potashpa),
+         local_seed = mean(local),
+         hybrid_seed = mean(hybrid),
+         hyv_seed = mean(hyv)) %>%
+  ungroup() %>%
+  mutate(yield_check = output_VDSYID / croparea_VDSYID) %>%
+  select(-output_VDSPSYID, -croparea_VDSPSYID, -yield, -dist_h2p, -dist_s2p,
+         -fertilizer_frequency, -fertilizer_indicator, -irrigation_frequency,
+         -irrigation_indicator, -motorpa, -nitropa, -phospa, -potashpa, -local, -hybrid, -hyv) %>%
+  rename( output = output_VDSYID,
+          croparea = croparea_VDSYID,
+          yield = yield_VDSYID,
+          dist_h2p = dist_h2p_VDSYID,
+          dist_s2p = dist_s2p_VDSYID,
+          fertilizer_frequency = fertilizer_frequency_yearly,
+          fertilizer_indicator = fertilizer_indicator_yearly,
+          irrigation_frequency = irrigation_frequency_yearly,
+          irrigation_indicator = irrigation_indicator_yearly,
+          motorpa = motorpa_n,
+          nitropa = nitropa_n,
+          phospa = phospa_n,
+          potashpa = potashpa_n) %>%
+  select(-yield_check) %>%
+  # Landholding Group
+  mutate(labour = if_else(landholdinggroup == "Labour", 1, 0),
+         large = if_else(landholdinggroup == "Large", 1, 0),
+         medium = if_else(landholdinggroup == "Medium", 1 ,0),
+         small = if_else(landholdinggroup == "Small", 1, 0)
+  ) %>%
+  group_by(vdsyid) %>%
+  mutate(across(c(labour, large, medium, small),
+                ~ mean(., na.rm = TRUE),
+                .names = "{.col}_VDSYID"
+  )) %>%
+  ungroup() %>%
+  select(-labour, -large, -medium, -small) %>%
+  # Irrigated/Irrigable Areas
+  mutate(irrigated = irrigatedareainacres,
+         irrigated = if_else(is.na(irrigated), irrigableareaoftheplot, irrigated)) %>%
+  group_by(vdsyid) %>%
+  mutate(irrigated_irrigable = sum(irrigated)) %>%
+  ungroup() %>%
+  mutate(irrigated_irrigable_pa = irrigated_irrigable / plotcount) %>%
+  select(-irrigated, -irrigated_irrigable) %>%
+  rename(irrigated = irrigated_irrigable_pa)
+
+CI_CO_LH_VDSYID <- CI_CO_merged %>%
+  select(country, state, district, taluk, village, vdsid_hhid, year, vdsyid, plotcount,
+         problemsoil_plotcount, problemsoil_nodeg_plotcount, alkaline_acidic_plotcount,
+         infertile_plotcount, erosive_plotcount, deepsoil_plotcount, vdeepsoil_plotcount,
+         shallowsoil_plotcount, mediumsoil_plotcount, highslope_plotcount, levelslope_plotcount,
+         midslope_plotcount, slightslope_plotcount, problemsoil_i, problemsoil_nodeg_i,
+         alkaline_acidic_i, infertile_i, erosive_i, deepsoil_i, vdeepsoil_i, shallowsoil_i,
+         mediumsoil_i, highslope_i, levelslope_i, midslope_i, slightslope_i, problemsoil_plotshare,
+         problemsoil_nodeg_plotshare, alkaline_acidic_plotshare, infertile_plotshare,
+         erosive_plotshare, deepsoil_plotshare, vdeepsoil_plotshare, shallowsoil_plotshare,
+         mediumsoil_plotshare, highslope_plotshare, levelslope_plotshare, midslope_plotshare,
+         slightslope_plotshare, landownership, o2t_co, o2t_co2, season_full, output, croparea,
+         yield, dist_h2p, dist_s2p, fertilizer_frequency, fertilizer_indicator, irrigation_frequency,
+         irrigation_indicator, motorpa, nitropa, phospa, potashpa, local_seed, hybrid_seed, hyv_seed,
+         labour_VDSYID, large_VDSYID, medium_VDSYID, small_VDSYID, irrigated) %>%
+  distinct(vdsyid, .keep_all = TRUE)
 
 
