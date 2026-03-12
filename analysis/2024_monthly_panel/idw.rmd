@@ -18,7 +18,7 @@ library(fields)
 library(ggplot2)
 library(glue)
 
-gwl_panel <- read_csv("data/year_panel.csv")
+gwl_panel <- read_csv("../../data/year_panel.csv")
 gwl_panel <- gwl_panel %>%
   rename(x = longitude, y = latitude, time = data_time) %>%
   mutate(month_ = month(floor_date(time, unit = "month")))
@@ -106,7 +106,7 @@ alpha_values <- c(1, 0.2, 0.01)
 alpha_values <- c(2, 5, 10)
 euclidean_plot(alpha_values)
 
-ggsave("plots/idw_all_subzero.png", dpi = 150)
+ggsave("../../plots/idw_all_subzero.png", dpi = 150)
 
 # function calls to previous versions without faceting
 # alpha <- 1

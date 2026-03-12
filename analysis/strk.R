@@ -225,6 +225,7 @@ plot(var_residuals_st, metric_fit, wireframe = FALSE, all = TRUE)
 # MSE values
 attr(prodsum_fit, "MSE")
 attr(summetric_fit, "MSE")
+
 attr(metric_fit, "MSE")
 
 # ___________________________________________________________________________

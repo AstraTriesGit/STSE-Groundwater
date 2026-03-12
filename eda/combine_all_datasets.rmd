@@ -1,5 +1,5 @@
 ---
-title: "Combining Disjoint GWL Datasets"
+title: "Combining the Collected GWL Datasets"
 output: pdf_document
 ---
 
@@ -7,7 +7,7 @@ Throughout the research process, we have acquired datasets from India-WRIS in th
 - May 2023 - May 2024
 - May 2018 - May 2023
 - May 2014 - May 2018
-- May 2004 - May 2014 (6/9, TO BE RECEIVED)
+- May 2004 - May 2014 (TO BE RECEIVED)
 ```{r}
 library(readxl)
 library(dplyr)
@@ -20,8 +20,8 @@ library(tidyverse)
 ```
 
 ## Datatypes and `feather` Format Conversion
-We read all the Excel files provided by India-WRIS and combined them into different `.feather` files depending
-on the period and the measurement type (manual/telemetric.)
+We read all the Excel files provided by India-WRIS and combined them into different `.feather` files
+depending on the period and the measurement type (manual/telemetric.)
 ```{r}
 # concatenate all Excel files in a period's telemetric folder
 combine_telemetric <- function (excel_dir) {
@@ -112,16 +112,14 @@ na_count <- gwl_2018_23_manual %>%
 glimpse(na_count)
 ```
 Dimensions = 674,846 x 14
-No NAs in data. However, (latitude, longitude) are strings. We have to convert them to doubles, but the numbers are
-possibly too precise. Pending evaluation of null values.
+No NAs in data. However, (latitude, longitude) are strings. We have to convert them to doubles, but the
+numbers are possibly too precise. Pending evaluation of null values.
 ```{r}
 # this introduces NAs in the dataset
 gwl_2018_23_manual <- gwl_2018_23_manual %>%
     mutate(latitude = as.double(latitude),
            longitude = as.double(longitude)) %>%
     drop_na()
-
-
 ```
 
 ## Analysis of 2014-18 Data

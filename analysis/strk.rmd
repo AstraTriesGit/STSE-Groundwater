@@ -72,7 +72,3 @@ st_vgm <- variogramST(formula = residuals~1,
 
 plot(st_vgm)
 ```
-
-```{r}
-
-```

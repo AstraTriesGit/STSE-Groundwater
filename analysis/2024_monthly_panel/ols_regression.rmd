@@ -19,7 +19,7 @@ library(ggplot2)
 library(maps)
 library(tidyr)
 
-gwl_panel <- read_csv("../data/year_panel.csv")
+gwl_panel <- read_csv("../../data/year_panel.csv")
 ```
 
 Very quickly, let's perform a OLS regression on the dataset.
@@ -91,7 +91,7 @@ ggplot(df_location_1, aes(x = time, y = residuals)) +
   ) + geom_line(data = df_location_2, mapping = aes(x = time, y = residuals)) +
   theme_bw()
 
-ggsave("../plots/ols_time_residuals.png", dpi = 300)
+ggsave("../../plots/ols_time_residuals.png", dpi = 300)
 ```
 
 Nice job team.

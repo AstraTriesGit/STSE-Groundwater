@@ -1,7 +1,12 @@
 library(feather)
+library(dplyr)
 library(lubridate)
-library(sf)
 library(xts)
+library(spacetime)
+library(sp)
+library(gstat)
+library(RColorBrewer)
+library(ggplot2)
 
 # well known process of running a linear regression_________
 gwl <- read_feather("data/combined/sep_panel.feather")
@@ -24,17 +29,59 @@ gwl$residuals <- trend_model$residuals
 
 # now, let's begin! Let's see what gets fucked. TODAY.
 coordinates_df <- gwl %>% distinct(x, y)
-sp_points <- SpatialPoints(coordinates_df,
-                           proj4string = CRS("EPSG:7755"))
+sp_points <- SpatialPoints(coordinates_df)
 time_index <- gwl %>% distinct(time) %>% arrange(time)
 gwl_stfdf <- STFDF(sp = sp_points,
                    time = time_index$time,
                    data = gwl[, c("avg_gwl", "residuals")])
+#
+# proj4string(gwl_stfdf) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+# gwl_stfdf <- spTransform(gwl_stfdf, CRS("EPSG:7755"))
+
 # now, let's begin! Let's see what gets fucked. TODAY. You have us to repay!END
 # yaar I think the problem is beyond this section.
 
 
 # yeah yeah variogram and fitting, whatever__________
+var_og <- variogram(object = avg_gwl~1,
+                    data = gwl_stfdf,
+                    width = 5000,     # 5 km bins
+                    cutoff = 200000,  # 200 km maximum
+                    tlags = 0:8)
+var_residuals <- variogram(object = residuals~1,
+                           data = gwl_stfdf,
+                           width = 5000,     # 5 km bins
+                           cutoff = 200000,  # 200 km maximum
+                           tlags = 0:8)
+plot_spatial_variograms <- function(var_residuals, var_og) {
+  # Extract spatial variogram (time lag = 0) from both variograms
+  spatial_var_residuals <- var_residuals[var_residuals$timelag == 0, ]
+  spatial_var_og <- var_og[var_og$timelag == 0, ]
+
+  ggplot() +
+    geom_point(data = spatial_var_og, aes(x = dist, y = gamma, color = "Original Data")) +
+    geom_line(data = spatial_var_og, aes(x = dist, y = gamma, color = "Original Data")) +
+    geom_point(data = spatial_var_residuals, aes(x = dist, y = gamma, color = "Residuals")) +
+    geom_line(data = spatial_var_residuals, aes(x = dist, y = gamma, color = "Residuals")) +
+    scale_color_manual(values = c("Original Data" = "blue", "Residuals" = "red")) +
+    scale_x_continuous(labels = function(x) x/1000) +  # Convert to km on axis
+    labs(x = "Distance (km)", y = "Semivariance",
+         title = "Spatial Variograms",
+         color = "Data Type") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 20, hjust = 0.5),
+          axis.title.x = element_text(size = 18),
+          axis.title.y = element_text(size = 18),
+          axis.text.x = element_text(size = 15),
+          axis.text.y = element_text(size = 15),
+          legend.title = element_text(size = 18),
+          legend.text = element_text(size = 12),
+          strip.text = element_text(size = 18),
+          plot.margin = margin(0, 0, 0, 0))
+}
+plot_spatial_variograms(var_residuals, var_og)
+
+
 var_residuals_st <- variogramST(formula = residuals~1,
                                 data = gwl_stfdf,
                                 width = 5000,     # 5 km bins
