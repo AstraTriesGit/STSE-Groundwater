@@ -106,7 +106,7 @@ alpha_values <- c(1, 0.2, 0.01)
 alpha_values <- c(2, 5, 10)
 euclidean_plot(alpha_values)
 
-ggsave("../../plots/idw_all_subzero.png", dpi = 150)
+ggsave("../../plots/presentation/idw_all_subzero.png", dpi = 150)
 
 # function calls to previous versions without faceting
 # alpha <- 1

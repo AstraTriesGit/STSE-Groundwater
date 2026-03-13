@@ -91,7 +91,7 @@ ggplot(df_location_1, aes(x = time, y = residuals)) +
   ) + geom_line(data = df_location_2, mapping = aes(x = time, y = residuals)) +
   theme_bw()
 
-ggsave("../../plots/ols_time_residuals.png", dpi = 300)
+ggsave("../../plots/presentation/ols_time_residuals.png", dpi = 300)
 ```
 
 Nice job team.

@@ -80,4 +80,4 @@ ggplot(grid, aes(data_time, id)) +
   scale_y_discrete(limits = rev)
   # scale_x_datetime(date_breaks = "1 month", date_labels = "%b %Y")
 
-ggsave("../plots/gwl_gujarat_traingular.png")
+ggsave("../plots/sparseness_plot_GJ.png")

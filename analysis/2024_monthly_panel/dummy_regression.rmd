@@ -325,7 +325,7 @@ plot_temporal_variograms <- function(var_og, var_residuals) {
 }
 
 plot_temporal_variograms(var_og, var_residuals)
-ggsave('../../plots/t_variogram.png', dpi = 150)
+ggsave('../../plots/presentation/t_variogram.png', dpi = 150)
 ```
 
 Looks like the spatio-temporal variogram plots have been lost to time. We'll have to plot them from scratch
@@ -352,7 +352,7 @@ plot_stvar(var_residuals, "Residuals")
 var_plot_data <- var_residuals
 var_plot_data$timelag <- as.numeric(var_plot_data$timelag) / 30.44
 
-png("../../plots/stvar_original.png", width = 1920, height = 1080, res = 150)
+png("../../plots/presentation/stvar_original.png", width = 1920, height = 1080, res = 150)
 plot(var_plot_data,
      xlab = "Distance Lag (km)",
      ylab = "Time Lag (Months)",

@@ -166,7 +166,7 @@ ggplot(observations_per_t, aes(y = count, x = data_time)) +
         geom_text(aes(label = round(count/1e3)), vjust = -0.5) +
         labs(y = "No. of Observations", x = "Timestamp")
 
-ggsave("plots/combined/observations_per_t.png", dpi = 150)
+ggsave("../plots/observations_per_month.png", dpi = 150)
 ```
 How tf are we supposed to have ANY kind of time series BS with this??
 
