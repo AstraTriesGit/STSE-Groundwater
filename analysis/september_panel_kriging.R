@@ -58,7 +58,7 @@ create_stfdf <- function(trend) {
   proj4string(gwl_stfdf) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
   gwl_stfdf <- spTransform(gwl_stfdf, CRS("EPSG:7755"))
 
-  return(gwl_stfdf)
+  gwl_stfdf
 }
 
 gwl_stfdf <- create_stfdf(trend_model)

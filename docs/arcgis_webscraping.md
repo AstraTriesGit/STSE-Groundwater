@@ -41,3 +41,5 @@ It's not a simple website to scrape. Here are the steps you
 have to take to download just one dataset.
 
 ### Future Goals and Foreseen Issues
+https://www.arcgis.com/home/webmap/viewer.html?url=https%3A%2F%2Farc.indiawris.gov.in%2Fserver%2Frest%2Fservices%2FNWIC%2FGroundwater_Stations%2FMapServer&source=sd      
+lies another table with just the coordinates of the stations.

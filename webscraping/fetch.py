@@ -84,10 +84,6 @@ class DataFetcher:
             EC.element_to_be_clickable((By.ID, "dataDownloadforReport"))
         )
         final_download_button.click()
-        while True:
-            final_download_button.click()
-            print('chaljaaaaaaaaaa')
-
 
         student_checkbox = WebDriverWait(self.driver, 25).until(
             EC.presence_of_element_located((By.ID, "Student"))
@@ -105,10 +101,6 @@ class DataFetcher:
             EC.element_to_be_clickable((By.CSS_SELECTOR, "button.btn.btn-success"))
         )
         submit_button.click()
-
-
-
-
 
 class CoordFetcher:
     def __init__(self):
@@ -172,13 +164,14 @@ class CoordFetcher:
         )
         print(rows)
 
-        processor = DataProcessor()
-        rows = table.find_elements("css selector", "div[role='row']")
-        print(rows)
+        # processor = DataProcessor()
+        # rows = table.find_elements("css selector", "div[role='row']")
+        # print(rows)
+        #
+        # for row in rows:
+        #     row_data = processor.extract_row_data(row)
+        #     print(row_data)
+        #     break
+        #
+        # time.sleep(25)
 
-        for row in rows:
-            row_data = processor.extract_row_data(row)
-            print(row_data)
-            break
-
-        time.sleep(25)
