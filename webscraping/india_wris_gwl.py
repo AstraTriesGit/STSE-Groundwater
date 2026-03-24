@@ -1,7 +1,6 @@
 import time
 
 from selenium import webdriver
-from selenium.webdriver import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -24,6 +23,23 @@ class GwlReading:
     timestamp: str
     data_value: str
 
+class StabilityMethods:
+    @staticmethod
+    def wait_until_stable(driver, locator, pause=1.0, timeout=30):
+        """Wait until an element's HTML stops changing."""
+        end_time = time.time() + timeout
+
+        plot = driver.find_element(*locator)
+        last_html = plot.get_attribute("outerHTML")
+
+        while time.time() < end_time:
+            time.sleep(pause)
+            current_html = plot.get_attribute("outerHTML")
+            if current_html == last_html:
+                return plot  # Stable!
+            last_html = current_html
+
+        raise TimeoutError("Plot never stabilized")
 
 class DataFetcher:
     def __init__(self):
@@ -71,10 +87,6 @@ class DataFetcher:
 
         state_dropdown.select_by_visible_text("Andhra Pradesh")
         self.select_district()
-
-    def select_district_right(self):
-
-        pass
 
     def select_district(self):
         # now wait for the app to load relevant state/UT data
@@ -164,32 +176,6 @@ class DataFetcher:
             pass
 
 
-
-
 fetcher = DataFetcher()
 fetcher.select_state()
 
-
-
-# seems unreliable. You sure we cannot figure out how to press the dang button?
-# # now to try and get the readings out of the graph. How?
-# # floating graphic xpath
-# # this remains the same, it just updates the number every time, as expected
-# # the key idea would be to somehow create the hover effect that gives us the number
-# floating_xpath = "/html/body/app-root/app-groundwaterlevelnew/div[1]/div[2]/div/div/div[2]/div[4]/div/div[3]/div[3]/span/table/tbody/tr"
-# first_bar_xpath = "/html/body/app-root/app-groundwaterlevelnew/div[1]/div[2]/div/div/div[2]/div[4]/div/div[3]/svg/g[2]/path[1]"
-# first_bar_selector = "#highcharts-pt563z4-371 > svg > path"
-# hover_away_xpath = "/html/body/app-root/app-ground-water/app-header/div[1]/div/div/div[1]/ul/li[3]"
-# time.sleep(90) # another slowdown to scraper performance...
-# # hover over the first bar to update the span table
-# first_bar = WebDriverWait(self.driver, 60).until(
-#     EC.presence_of_element_located((By.CSS_SELECTOR, first_bar_selector))
-# )
-# ActionChains(self.driver).move_to_element(first_bar).perform()
-# hover_away = self.driver.find_element(By.XPATH, hover_away_xpath)
-# ActionChains(self.driver).move_to_element(hover_away).perform()
-#
-# # now harvest the month and value
-# floating_infographic = self.driver.find_element(By.XPATH, floating_xpath)
-# floating_infographic_html = BeautifulSoup(floating_infographic.get_attribute("outerHTML"), 'html.parser')
-# print(floating_infographic_html)
