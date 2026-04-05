@@ -5,7 +5,8 @@ library(ggplot2)
 library(forcats)
 
 # may '14 - may '24
-gwl <- read_feather("../data/combined/gwl_fixed_coords.feather")
+# gwl <- read_feather("../data/combined/gwl_fixed_coords.feather")
+gwl <- read_csv("data/wris_webscrape/Manipur.csv")
 glimpse(gwl)
 
 # premonsoon, post-monsoon,
@@ -20,26 +21,24 @@ gwl_up <- gwl %>%
 
 # gwl_up <- gwl
 
-gwl_up_grouped <- gwl_up %>%
-  mutate(data_time = round_date(data_time, unit = "day")) %>%
-  group_by(latitude, longitude, data_time) %>%
-  summarise(data_value = mean(data_value),
-            data_value_sd = sd(data_value)) %>%
+gwl_up_grouped <- gwl %>%
+  # mutate(data_time = round_date(data_time, unit = "day")) %>%
+  group_by(station_code, timestamp) %>%
+  summarise(data_value = mean(reading),
+            data_value_sd = sd(reading)) %>%
   ungroup()
 
 # gwl_up <- mutate(gwl_up, data_value_sd = if_else(is.na(data_value_sd), 0, data_value_sd))
 # some issues with stddev, ignoring for now
 
 gwl_up_months <- gwl_up_grouped %>%
-  mutate(data_time = round_date(data_time, unit = "month")) %>%
+  # mutate(data_time = round_date(data_time, unit = "month")) %>%
   group_by(latitude, longitude, data_time) %>%
   summarise(data_value_sd = sd(data_value),
             data_value = mean(data_value),
-            first_reading = min(data_time)
   )
 
-grid <- gwl_up_months %>%
-  mutate(id = paste(longitude, latitude)) %>%
+grid <- gwl_up_grouped %>%
   group_by(id) %>%
   mutate(min_first_reading = min(first_reading)) %>%
   ungroup() %>%

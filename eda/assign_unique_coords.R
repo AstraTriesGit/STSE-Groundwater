@@ -11,6 +11,7 @@ multi_coord_codes <- gwl %>%
   summarise(n = n()) %>%
   filter(n > 1)
 
+
 coord_variation <- gwl %>%
   group_by(station_code) %>%
   summarise(
